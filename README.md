@@ -2,7 +2,7 @@
 Dev platform for the GCC automation tool. 
 
 
-![[GCC Automation Tool Overview.png]]
+![GCC Automation Tool Overview](https://github.com/kaikamp/GCC-Automation-Tool/blob/main/GCC%20Automation%20Tool%20Overview.png?raw=true)
 
 
 # Modules Description
