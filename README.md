@@ -86,7 +86,7 @@ Functions:
 	  return PF instance with graphical interface (silent = false) or without (silent=true)
 - map_elements(PathToMapper): el_lib --> library 
 	  return a library of mapped element and signal names 
-# Config files
+
 
 
 # Config files description
