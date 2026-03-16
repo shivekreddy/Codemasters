@@ -2,7 +2,7 @@
 Dev platform for the GCC automation tool. 
 
 
-
+![[GCC Automation Tool Overview.png]]
 
 
 # Modules Description
