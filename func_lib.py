@@ -2,9 +2,24 @@ import winreg
 import os
 import sys
 import winreg
+import tkinter as Tk
 
 
 def get_PF(headless:bool):
+    """
+    Instantiate and return newest PowerFactory installation with the currently used Python version. 
+    Prints out errors, if necessary.
+    Uses additional functions.
+    Parameters
+    ----------
+    headless : bool
+        If true, PF will be run without graphic representation
+    Returns
+    -------
+    pf : PowerFactory instance
+    """
+    pyversion = sys.version.split(".")[0] + "." + sys.version.split(".")[1]
+    print("Running script with Python version " + pyversion)
     found_installations = find_powerfactory_installations()
     if not found_installations:
         print("No PowerFactory installations found.")
@@ -16,19 +31,15 @@ def get_PF(headless:bool):
     newest = sorted(found_installations, key=lambda x: x[0], reverse=True)[0]
     print("\nNewest installation:")
     print(newest[1])
-    syspath = newest[1]+r"Python\3.10"
-    print(syspath)
-    sys.path.append(r"{}".format(syspath))
+    syspath = newest[1]+"Python\\" + pyversion
+    sys.path.append(r"{}".format(syspath))      # this appends the required path to the PowerFactory module
     import powerfactory
     try:
         pf = powerfactory.GetApplicationExt()
         if not headless:
             pf.Show()
         user = pf.GetCurrentUser()
-        print(user)
-        project=user.GetContents('*.IntPrj')[1]
-        project.Activate()
-        # ... some calculations ...
+        print("Retrieved PowerFactory instance with user: " + str(user))
         return pf
     except powerfactory.ExitError as error:
         print(error)
@@ -82,8 +93,28 @@ def find_powerfactory_installations():
 
     return installations
 
+def get_nested_projects(parent) -> list:
+    projects = parent.GetContents('*.IntPrj')
+    folders = parent.GetContents('*.IntFolder')
+    if len(folders) > 0:
+        for f in folders:
+            projects.extend(get_nested_projects(f))
+    return projects
 
 
-# need to add Python Version control
+def select_PF_project(pf):
+    user = pf.GetCurrentUser()
+    projects = get_nested_projects(user)
+    root = Tk.Tk()
+    project_lb = Tk.Listbox(root, height=len(projects), width=200, selectmode='single')
+    for p in projects:
+            project_lb.insert('end',str(p))
+    project_lb.pack()
+    Tk.Button(root, text="Select", command=lambda: activate_Project(project_lb, projects)).pack()
+    Tk.mainloop()
 
-get_PF(False)
+
+def activate_Project(project_lb, projects):
+    print(project_lb.curselection())
+    projects[project_lb.curselection()[0]].Activate()
+
