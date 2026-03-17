@@ -31,6 +31,7 @@ Please
 Inputs:
 - PowerFactory Project Name ... 
 - folder for results
+- config file for simulations
 - ...
 Outputs:
 
@@ -53,7 +54,7 @@ Functions:
 Define export variables*
 
 Inputs: 
-- config file for simulations
+- 
 
 Outputs:
 - message: done
