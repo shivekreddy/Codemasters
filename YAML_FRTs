@@ -21,8 +21,8 @@ project:
   grid_code:          "NL"                          # Grid code identifier
   grid_code_version:  "Netcode Elektriciteit 2023"
   ppm_type:           "D"                           # PPM Type D (>= 110 kV)
-  author:             ""
-  date:               "2025-01-01"
+  author:             "Shivek Reddy"
+  date:               "2026-03-20"
 
 
 # ------------------------------------------------------------------------------
@@ -30,7 +30,7 @@ project:
 # ------------------------------------------------------------------------------
 plant:
   pmax_mw:         100.0    # Rated active power / Pmax [MW] — used for all P setpoints
-  poc_voltage_kv:  132.0    # POC busbar nominal voltage [kV]
+  poc_voltage_kv:  110.0    # POC busbar nominal voltage [kV]
   q_factor:          0.33   # Qmax = q_factor * Pmax  |  Qmin = -q_factor * Pmax
 
   # Normal voltage operating range [p.u.] — Dutch Netcode, HV (>44 kV)
