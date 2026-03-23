@@ -10,11 +10,11 @@ def get_PF(headless:bool, latest:bool):
     Instantiate and return newest PowerFactory installation with the currently used Python version. 
     Prints out errors, if necessary.
     Uses additional functions.
-    Parameters
+    \nParameters
     ----------
     headless : bool
         If true, PF will be run without graphic representation
-    Returns
+    \nReturns
     -------
     pf : PowerFactory instance
     """
@@ -63,9 +63,9 @@ def get_PF(headless:bool, latest:bool):
 def find_powerfactory_installations():
     """
     Checks the registry (needs read-only access to local user) for PowerFactory installations and returns a list of installation paths.
-    Parameters:
+    \nParameters:
     ---
-    returns
+    \nreturns
     ---
     installations : list of paths
     """
@@ -115,10 +115,10 @@ def find_powerfactory_installations():
 def get_nested_projects(parent) -> list:
     """
     Return all objects of type 'IntPrj' from given parent directory. Run recursively for all found folders 'IntFolder' and return a list of Project objects.
-    Parameters
+    \nParameters
     ----------
     parent : Object of type 'IntFolder'
-    returns
+    \nreturns
     -------
     projects : list of Objects (type 'IntPrj')
     """
@@ -133,10 +133,10 @@ def get_nested_projects(parent) -> list:
 def select_PF_project(pf):
     """
     Display list of available PF projects. Selected Project will be activated.
-    Parameters
+    \nParameters
     ----------
     pf : PowerFactory Instance
-    return
+    \nreturns
     ------
     None
     """
