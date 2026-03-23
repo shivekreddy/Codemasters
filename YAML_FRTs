@@ -1,0 +1,329 @@
+# ==============================================================================
+# GCC FRT Simulation Configuration File — Dutch Grid Code (Netcode Elektriciteit)
+# ==============================================================================
+# PPM Type D (>= 110 kV)
+#
+# Units:
+#   Voltage   : kV (absolute) or p.u. (normalised) — specified per field
+#   Power     : MW / Mvar
+#   Time      : seconds [s]
+#   Impedance : Ohm
+#
+# To use for a different grid code, swap this file — do not change the script.
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1. PROJECT
+# ------------------------------------------------------------------------------
+project:
+  name:               "Sonvanger Wind Farm"         # Plant / project name
+  grid_code:          "NL"                          # Grid code identifier
+  grid_code_version:  "Netcode Elektriciteit 2023"
+  ppm_type:           "D"                           # PPM Type D (>= 110 kV)
+  author:             "Shivek Reddy"
+  date:               "2026-03-20"
+
+
+# ------------------------------------------------------------------------------
+# 2. PLANT
+# ------------------------------------------------------------------------------
+plant:
+  pmax_mw:         100.0    # Rated active power / Pmax [MW] — used for all P setpoints
+  poc_voltage_kv:  110.0    # POC busbar nominal voltage [kV]
+  q_factor:          0.33   # Qmax = q_factor * Pmax  |  Qmin = -q_factor * Pmax
+
+  # Normal voltage operating range [p.u.] — Dutch Netcode, HV (>44 kV)
+  u_min_pu:  0.90
+  u_max_pu:  1.10
+
+
+# ------------------------------------------------------------------------------
+# 3. POWERFACTORY ELEMENTS
+# Run diagnostic.py to find the correct loc_name values for your model.
+# ------------------------------------------------------------------------------
+elements:
+  poc_busbar:    "Mbabala Collector Stn 132kV"           # ElmTerm — faults applied here
+  gu_busbar:     "Main Trf Terminal"                     # ElmTerm — HV side of main transformer
+  lv_busbar:     "WPW11_INV_A"                          # ElmTerm — representative LV terminal
+  puc_breaker:   "PUC"                                   # ElmCoup — point of utility connection
+  inverter:      "WPW11GU01"                             # ElmGenstat — representative inverter
+  station_ctrl:  "Sonvanger Station Control"             # ElmStactrl — "" for auto-detect
+  pfc_ctrl:      "Sonvanger Power-Frequency Controller"  # ElmSecctrl — "" for auto-detect
+  external_grid: "Grid"                                  # ElmXnet
+
+
+# ------------------------------------------------------------------------------
+# 4. SIMULATION SETTINGS
+# ------------------------------------------------------------------------------
+simulation:
+  integration_step_s:    0.001   # [s]
+  t_start_s:             0.0     # Simulation start time [s]
+  t_stop_s:             20.0     # Simulation stop time [s] — same for all 45 cases
+  fault_start_s:        10.0     # All faults applied at t=10s; clearance = 10 + fault_duration
+  a_stable_integration:   1      # 0=per element, 1=all, 2=per element+composite
+
+  setup_only:   true    # true  = create cases/events, do NOT run simulations
+                        # false = create cases AND run simulations
+  run_sim_only: false   # true  = skip case creation, only run existing cases
+
+
+# ------------------------------------------------------------------------------
+# 5. VARIABLES TO RECORD
+# Signals added to the ElmRes result file for each study case.
+# element_ref : key from the elements section above
+# variable    : PowerFactory result variable string
+# label       : friendly name for plot legends and exports
+# ------------------------------------------------------------------------------
+record:
+  - element_ref: poc_busbar
+    variable:    "m:u1"
+    label:       "POC Voltage [p.u.]"
+
+  - element_ref: poc_busbar
+    variable:    "m:u:A"
+    label:       "POC Voltage Phase A [p.u.]"
+
+  - element_ref: poc_busbar
+    variable:    "m:u:B"
+    label:       "POC Voltage Phase B [p.u.]"
+
+  - element_ref: poc_busbar
+    variable:    "m:u:C"
+    label:       "POC Voltage Phase C [p.u.]"
+
+  - element_ref: puc_breaker
+    variable:    "m:I1P:bus2"
+    label:       "PUC Active Current [kA]"
+
+  - element_ref: puc_breaker
+    variable:    "m:I1Q:bus2"
+    label:       "PUC Reactive Current [kA]"
+
+  - element_ref: puc_breaker
+    variable:    "m:P:bus2"
+    label:       "PUC Active Power [MW]"
+
+  - element_ref: puc_breaker
+    variable:    "m:Q:bus2"
+    label:       "PUC Reactive Power [Mvar]"
+
+  - element_ref: lv_busbar
+    variable:    "m:u1"
+    label:       "LV Busbar Voltage [p.u.]"
+
+  - element_ref: inverter
+    variable:    "m:P:bus1"
+    label:       "Inverter Active Power [MW]"
+
+  - element_ref: inverter
+    variable:    "m:Q:bus1"
+    label:       "Inverter Reactive Power [Mvar]"
+
+
+# ------------------------------------------------------------------------------
+# 6. PLOT PAGES
+# Blank plot pages created in each study case in PowerFactory.
+# ------------------------------------------------------------------------------
+plot_pages:
+  - "POC"
+  - "GU"
+
+
+# ------------------------------------------------------------------------------
+# 7. GRID CODE REQUIREMENTS
+# Dutch Netcode Elektriciteit — PPM Type D (>= 110 kV)
+#
+# Fault duration per scenario:
+#   Scenario 1: Uret < 0.05  ->  420 ms
+#   Scenario 2: Uret = 0.20  ->  900 ms
+#   Scenario 3: Uret = 0.40  -> 1550 ms
+#   Scenario 4: Uret = 0.60  -> 2200 ms
+#   Scenario 5: Uret = 0.85  -> 3000 ms
+# ------------------------------------------------------------------------------
+requirements:
+  lvrt_curve:
+    - [0.000, 0.00]
+    - [0.420, 0.00]
+    - [0.420, 0.05]
+    - [0.900, 0.20]
+    - [1.550, 0.40]
+    - [2.200, 0.60]
+    - [3.000, 0.85]
+    - [3.000, 1.00]
+
+  active_power_recovery:
+    min_fraction: 0.90    # must restore to >= 90% of pre-fault active power
+    within_s:     1.00    # within 1s after fault clearance
+
+
+# ------------------------------------------------------------------------------
+# 8. OPERATING CONDITIONS
+# One entry per study case (45 total — one op scenario per case in PowerFactory).
+#
+# psetp  : PFC controller active power setpoint — always "Pmax" (100% rated power)
+# qsetp  : station controller reactive power setpoint
+#            Q0   ->  0.0        (no reactive power)
+#            Qmax -> "Qmax"      resolved at runtime to +q_factor * Pmax
+#            Qmin -> "Qmin"      resolved at runtime to -q_factor * Pmax
+# usetp  : external grid voltage setpoint [p.u.] — 1.00 for all cases
+#
+# Symbols resolved at runtime from the plant section:
+#   "Pmax" -> pmax_mw
+#   "Qmax" -> +q_factor * Pmax
+#   "Qmin" -> -q_factor * Pmax
+# ------------------------------------------------------------------------------
+operating_conditions:
+
+  # ---------- 1PH Q0 ----------------------------------------------------------
+  - {name: "FRT 1PH 0.05 Q0",   psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 1PH 0.2 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 1PH 0.4 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 1PH 0.6 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 1PH 0.85 Q0",   psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+
+  # ---------- 1PH Qmax --------------------------------------------------------
+  - {name: "FRT 1PH 0.05 Qmax", psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 1PH 0.2 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 1PH 0.4 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 1PH 0.6 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 1PH 0.85 Qmax", psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+
+  # ---------- 1PH Qmin --------------------------------------------------------
+  - {name: "FRT 1PH 0.05 Qmin", psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 1PH 0.2 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 1PH 0.4 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 1PH 0.6 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 1PH 0.85 Qmin", psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+
+  # ---------- 2PH Q0 ----------------------------------------------------------
+  - {name: "FRT 2PH 0.05 Q0",   psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 2PH 0.2 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 2PH 0.4 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 2PH 0.6 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 2PH 0.85 Q0",   psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+
+  # ---------- 2PH Qmax --------------------------------------------------------
+  - {name: "FRT 2PH 0.05 Qmax", psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 2PH 0.2 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 2PH 0.4 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 2PH 0.6 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 2PH 0.85 Qmax", psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+
+  # ---------- 2PH Qmin --------------------------------------------------------
+  - {name: "FRT 2PH 0.05 Qmin", psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 2PH 0.2 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 2PH 0.4 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 2PH 0.6 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 2PH 0.85 Qmin", psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+
+  # ---------- 3PH Q0 ----------------------------------------------------------
+  - {name: "FRT 3PH 0.05 Q0",   psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 3PH 0.2 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 3PH 0.4 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 3PH 0.6 Q0",    psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+  - {name: "FRT 3PH 0.85 Q0",   psetp: "Pmax", qsetp: 0.0,    usetp: 1.00}
+
+  # ---------- 3PH Qmax --------------------------------------------------------
+  - {name: "FRT 3PH 0.05 Qmax", psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 3PH 0.2 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 3PH 0.4 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 3PH 0.6 Qmax",  psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+  - {name: "FRT 3PH 0.85 Qmax", psetp: "Pmax", qsetp: "Qmax", usetp: 1.00}
+
+  # ---------- 3PH Qmin --------------------------------------------------------
+  - {name: "FRT 3PH 0.05 Qmin", psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 3PH 0.2 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 3PH 0.4 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 3PH 0.6 Qmin",  psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+  - {name: "FRT 3PH 0.85 Qmin", psetp: "Pmax", qsetp: "Qmin", usetp: 1.00}
+
+
+# ------------------------------------------------------------------------------
+# 9. STUDY CASES
+# 45 cases total: 3 fault types x 5 Uret levels x 3 Q conditions
+# Each case links to its own op scenario (same name as the study case).
+#
+# fault_start_s    : all faults start at t=10s
+# fault_clr_time_s : clearance = fault_start + fault_duration
+#                    e.g. Uret=0.05: 10 + 0.420 = 10.420s
+#                         Uret=0.85: 10 + 3.000 = 13.000s
+# t_stop_s         : 20.0s for all cases
+# ------------------------------------------------------------------------------
+study_cases:
+
+  # ========================================================================
+  # 1PH — single phase to ground
+  # ========================================================================
+
+  # 1PH Q0
+  - {name: "FRT 1PH 0.05 Q0", operating_condition: "FRT 1PH 0.05 Q0", fault_type: "1ph-g", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.2 Q0", operating_condition: "FRT 1PH 0.2 Q0", fault_type: "1ph-g", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.4 Q0", operating_condition: "FRT 1PH 0.4 Q0", fault_type: "1ph-g", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.6 Q0", operating_condition: "FRT 1PH 0.6 Q0", fault_type: "1ph-g", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.85 Q0", operating_condition: "FRT 1PH 0.85 Q0", fault_type: "1ph-g", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # 1PH Qmax
+  - {name: "FRT 1PH 0.05 Qmax", operating_condition: "FRT 1PH 0.05 Qmax", fault_type: "1ph-g", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.2 Qmax", operating_condition: "FRT 1PH 0.2 Qmax", fault_type: "1ph-g", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.4 Qmax", operating_condition: "FRT 1PH 0.4 Qmax", fault_type: "1ph-g", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.6 Qmax", operating_condition: "FRT 1PH 0.6 Qmax", fault_type: "1ph-g", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.85 Qmax", operating_condition: "FRT 1PH 0.85 Qmax", fault_type: "1ph-g", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # 1PH Qmin
+  - {name: "FRT 1PH 0.05 Qmin", operating_condition: "FRT 1PH 0.05 Qmin", fault_type: "1ph-g", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.2 Qmin", operating_condition: "FRT 1PH 0.2 Qmin", fault_type: "1ph-g", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.4 Qmin", operating_condition: "FRT 1PH 0.4 Qmin", fault_type: "1ph-g", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.6 Qmin", operating_condition: "FRT 1PH 0.6 Qmin", fault_type: "1ph-g", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 1PH 0.85 Qmin", operating_condition: "FRT 1PH 0.85 Qmin", fault_type: "1ph-g", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # ========================================================================
+  # 2PH — two phase
+  # ========================================================================
+
+  # 2PH Q0
+  - {name: "FRT 2PH 0.05 Q0", operating_condition: "FRT 2PH 0.05 Q0", fault_type: "2ph", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.2 Q0", operating_condition: "FRT 2PH 0.2 Q0", fault_type: "2ph", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.4 Q0", operating_condition: "FRT 2PH 0.4 Q0", fault_type: "2ph", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.6 Q0", operating_condition: "FRT 2PH 0.6 Q0", fault_type: "2ph", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.85 Q0", operating_condition: "FRT 2PH 0.85 Q0", fault_type: "2ph", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # 2PH Qmax
+  - {name: "FRT 2PH 0.05 Qmax", operating_condition: "FRT 2PH 0.05 Qmax", fault_type: "2ph", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.2 Qmax", operating_condition: "FRT 2PH 0.2 Qmax", fault_type: "2ph", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.4 Qmax", operating_condition: "FRT 2PH 0.4 Qmax", fault_type: "2ph", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.6 Qmax", operating_condition: "FRT 2PH 0.6 Qmax", fault_type: "2ph", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.85 Qmax", operating_condition: "FRT 2PH 0.85 Qmax", fault_type: "2ph", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # 2PH Qmin
+  - {name: "FRT 2PH 0.05 Qmin", operating_condition: "FRT 2PH 0.05 Qmin", fault_type: "2ph", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.2 Qmin", operating_condition: "FRT 2PH 0.2 Qmin", fault_type: "2ph", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.4 Qmin", operating_condition: "FRT 2PH 0.4 Qmin", fault_type: "2ph", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.6 Qmin", operating_condition: "FRT 2PH 0.6 Qmin", fault_type: "2ph", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 2PH 0.85 Qmin", operating_condition: "FRT 2PH 0.85 Qmin", fault_type: "2ph", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # ========================================================================
+  # 3PH — three phase
+  # ========================================================================
+
+  # 3PH Q0
+  - {name: "FRT 3PH 0.05 Q0", operating_condition: "FRT 3PH 0.05 Q0", fault_type: "3ph", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.2 Q0", operating_condition: "FRT 3PH 0.2 Q0", fault_type: "3ph", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.4 Q0", operating_condition: "FRT 3PH 0.4 Q0", fault_type: "3ph", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.6 Q0", operating_condition: "FRT 3PH 0.6 Q0", fault_type: "3ph", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.85 Q0", operating_condition: "FRT 3PH 0.85 Q0", fault_type: "3ph", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # 3PH Qmax
+  - {name: "FRT 3PH 0.05 Qmax", operating_condition: "FRT 3PH 0.05 Qmax", fault_type: "3ph", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.2 Qmax", operating_condition: "FRT 3PH 0.2 Qmax", fault_type: "3ph", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.4 Qmax", operating_condition: "FRT 3PH 0.4 Qmax", fault_type: "3ph", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.6 Qmax", operating_condition: "FRT 3PH 0.6 Qmax", fault_type: "3ph", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.85 Qmax", operating_condition: "FRT 3PH 0.85 Qmax", fault_type: "3ph", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
+  # 3PH Qmin
+  - {name: "FRT 3PH 0.05 Qmin", operating_condition: "FRT 3PH 0.05 Qmin", fault_type: "3ph", uret_pu: 0.05, fault_start_s: 10.0, fault_clr_time_s: 10.420, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.2 Qmin", operating_condition: "FRT 3PH 0.2 Qmin", fault_type: "3ph", uret_pu: 0.2, fault_start_s: 10.0, fault_clr_time_s: 10.900, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.4 Qmin", operating_condition: "FRT 3PH 0.4 Qmin", fault_type: "3ph", uret_pu: 0.4, fault_start_s: 10.0, fault_clr_time_s: 11.550, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.6 Qmin", operating_condition: "FRT 3PH 0.6 Qmin", fault_type: "3ph", uret_pu: 0.6, fault_start_s: 10.0, fault_clr_time_s: 12.200, t_stop_s: 20.0}
+  - {name: "FRT 3PH 0.85 Qmin", operating_condition: "FRT 3PH 0.85 Qmin", fault_type: "3ph", uret_pu: 0.85, fault_start_s: 10.0, fault_clr_time_s: 13.000, t_stop_s: 20.0}
+
