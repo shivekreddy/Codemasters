@@ -5,7 +5,7 @@ import winreg
 import tkinter as Tk
 
 
-def get_PF(headless:bool):
+def get_PF(headless:bool, latest:bool):
     """
     Instantiate and return newest PowerFactory installation with the currently used Python version. 
     Prints out errors, if necessary.
@@ -18,6 +18,7 @@ def get_PF(headless:bool):
     -------
     pf : PowerFactory instance
     """
+
     pyversion = sys.version.split(".")[0] + "." + sys.version.split(".")[1]
     print("Running script with Python version " + pyversion)
     found_installations = find_powerfactory_installations()
@@ -28,11 +29,21 @@ def get_PF(headless:bool):
             print(f"{version}: {path}")
 
     # To get the newest version:
-    newest = sorted(found_installations, key=lambda x: x[0], reverse=True)[0]
-    print("\nNewest installation:")
-    print(newest[1])
-    syspath = newest[1]+"Python\\" + pyversion
-    sys.path.append(r"{}".format(syspath))      # this appends the required path to the PowerFactory module
+    if latest:
+        newest = sorted(found_installations, key=lambda x: x[0], reverse=True)[0]
+        print("\nNewest installation:")
+        print(newest[1])
+        syspath = newest[1]+"Python\\" + pyversion
+        sys.path.append(r"{}".format(syspath))      # this appends the required path to the PowerFactory module
+    else:
+        root = Tk.Tk()
+        pf_lb = Tk.Listbox(root, height=len(found_installations), width=200, selectmode='single')
+        for version, path in found_installations:
+            pf_lb.insert('end',f"{version}: {path}")
+        pf_lb.pack()
+        Tk.Button(root, text="Select", command=lambda: _button_select_installation(pf_lb, found_installations, pyversion, root)).pack()
+        Tk.mainloop()
+
     import powerfactory
     try:
         pf = powerfactory.GetApplicationExt()
@@ -50,6 +61,14 @@ def get_PF(headless:bool):
 
 
 def find_powerfactory_installations():
+    """
+    Checks the registry (needs read-only access to local user) for PowerFactory installations and returns a list of installation paths.
+    Parameters:
+    ---
+    returns
+    ---
+    installations : list of paths
+    """
     installations = []
 
     # Registry roots to search (64-bit + 32-bit Wow6432Node)
@@ -94,6 +113,15 @@ def find_powerfactory_installations():
     return installations
 
 def get_nested_projects(parent) -> list:
+    """
+    Return all objects of type 'IntPrj' from given parent directory. Run recursively for all found folders 'IntFolder' and return a list of Project objects.
+    Parameters
+    ----------
+    parent : Object of type 'IntFolder'
+    returns
+    -------
+    projects : list of Objects (type 'IntPrj')
+    """
     projects = parent.GetContents('*.IntPrj')
     folders = parent.GetContents('*.IntFolder')
     if len(folders) > 0:
@@ -103,6 +131,15 @@ def get_nested_projects(parent) -> list:
 
 
 def select_PF_project(pf):
+    """
+    Display list of available PF projects. Selected Project will be activated.
+    Parameters
+    ----------
+    pf : PowerFactory Instance
+    return
+    ------
+    None
+    """
     user = pf.GetCurrentUser()
     projects = get_nested_projects(user)
     root = Tk.Tk()
@@ -110,11 +147,24 @@ def select_PF_project(pf):
     for p in projects:
             project_lb.insert('end',str(p))
     project_lb.pack()
-    Tk.Button(root, text="Select", command=lambda: activate_Project(project_lb, projects)).pack()
+    Tk.Button(root, text="Select", command=lambda: _button_activate_Project(project_lb, projects, root),).pack()
     Tk.mainloop()
 
 
-def activate_Project(project_lb, projects):
+def _button_activate_Project(project_lb, projects, root:Tk):
+    """
+    Used by Command button, do not use.
+    """
     print(project_lb.curselection())
     projects[project_lb.curselection()[0]].Activate()
+    root.destroy()
 
+
+def _button_select_installation(pf_lb:Tk.Listbox, installations:list, pyversion:str, root:Tk):
+    """
+    Used by Command button, do not use.
+    """
+    print(installations[pf_lb.curselection()[0]])
+    sys.path.append(installations[pf_lb.curselection()[0]][1] + "Python\\" + pyversion)
+    root.destroy()
+#add a comment
