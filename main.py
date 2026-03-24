@@ -1,6 +1,6 @@
-def main():
-    print("Hello from gcc-automation-tool!")
+import func_lib
+
+pf = func_lib.get_PF(False, False)
+func_lib.select_PF_project(pf)
 
 
-if __name__ == "__main__":
-    main()
