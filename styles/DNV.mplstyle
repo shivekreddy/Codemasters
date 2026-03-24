@@ -1,0 +1,42 @@
+# plt.style.use("../styles/DNV.mplstyle")
+
+# Color cycle (main brand palette)
+axes.prop_cycle: cycler('color, [
+    # according DNV Brandcentral
+    # Primary colour palette
+    "#0f204b",  # Dark blue
+    "#009fda",  # Cyan
+    "#003591",  # Sea blue
+    "#99d9f0",  # Sky blue
+    "#3f9c35",  # Land green
+    # Secondary colour palette
+    "#91ffb4",  # Digi green
+    "#2b6173",  # Pine forest
+    "#f2e6d5",  # Earth
+    "#15c2bb",  # Eucalyptus
+    "#fff377",  # Sunflower
+    "#a1aae6",  # Lavender
+    "#eb2a34",  # Energy red
+    "#cccbc9",  # Sandstone
+    "#b56700",  # Terracota
+    "#988f86",  # Warm Grey
+])
+
+axes.facecolor  : #FFFFFF
+
+# Background
+figure.facecolor: #FFFFFF
+
+# Grid
+axes.grid: True
+axes.edgecolor: #DEDEDE
+
+# Font
+font.family: sans-serif
+font.size: 12
+
+# Text
+text.color: #0f204b
+axes.labelcolor: #0f204b
+xtick.color: #0f204b
+ytick.color: #0f204b
