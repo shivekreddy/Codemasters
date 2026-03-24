@@ -2,14 +2,14 @@
 
 # Color cycle (main brand palette)
 axes.prop_cycle: cycler('color, [
-    # according DNV Brandcentral
-    # Primary colour palette
+    # according DNV Brand Central
+    # Primary color palette
     "#0f204b",  # Dark blue
     "#009fda",  # Cyan
     "#003591",  # Sea blue
     "#99d9f0",  # Sky blue
     "#3f9c35",  # Land green
-    # Secondary colour palette
+    # Secondary color palette
     "#91ffb4",  # Digi green
     "#2b6173",  # Pine forest
     "#f2e6d5",  # Earth
@@ -22,7 +22,7 @@ axes.prop_cycle: cycler('color, [
     "#988f86",  # Warm Grey
 ])
 
-axes.facecolor  : #FFFFFF
+axes.facecolor: #FFFFFF
 
 # Background
 figure.facecolor: #FFFFFF
