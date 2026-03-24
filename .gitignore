@@ -1,0 +1,9 @@
+.ipynb_checkpoints
+.idea
+.venv
+**/__pycache__/
+*.whl
+output/
+examples/
+*.xlsx
+*.csv
