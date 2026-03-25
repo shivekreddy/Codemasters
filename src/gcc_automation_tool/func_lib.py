@@ -44,7 +44,7 @@ def get_PF(headless:bool, latest:bool):
         Tk.Button(root, text="Select", command=lambda: _button_select_installation(pf_lb, found_installations, pyversion, root)).pack()
         Tk.mainloop()
 
-    import powerfactory
+    import powerfactory # type: ignore
     try:
         pf = powerfactory.GetApplicationExt()
         if not headless:
