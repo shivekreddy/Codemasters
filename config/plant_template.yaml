@@ -1,0 +1,42 @@
+# ==============================================================================
+# Config for basic project setup: Details on Plant/Park
+# ==============================================================================
+# 
+#
+# Units:
+#   Voltage   : kV (absolute) or p.u. (normalised) — specified per field
+#   Power     : MW / Mvar
+#   Time      : seconds [s]
+#   Impedance : Ohm
+#
+# Edit this file for new projects
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1. PROJECT
+# ------------------------------------------------------------------------------
+project:
+  name:               "Sonvanger Wind Farm"         # Plant / project name
+  grid_code:          "NL"                          # Grid code identifier
+  grid_code_version:  "Netcode Elektriciteit 2023"
+  ppm_type:           "D"                           # PPM Type D (>= 110 kV)
+  author:             "Shivek Reddy"
+  date:               "2026-03-20"
+
+
+# ------------------------------------------------------------------------------
+# 2. PLANT
+# ------------------------------------------------------------------------------
+plant:
+  pmax_mw:         100.0    # Rated active power / Pmax [MW] — used for all P setpoints
+  poc_voltage_kv:  110.0    # POC busbar nominal voltage [kV]
+  q_min:           0.33   
+  q_max:           0.33
+
+  # Normal voltage operating range [p.u.] 
+  u_min_pu:  0.90
+  u_max_pu:  1.10
+
+gcc_requirements:
+  - path:     "config/lvrt_template.yaml"

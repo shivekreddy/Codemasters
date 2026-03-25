@@ -1,0 +1,27 @@
+# WIP - Add elements, signals etc. as required
+
+elements:
+  poc_busbar:    "Mbabala Collector Stn 132kV"           # ElmTerm — faults applied here
+  gu_busbar:     "Main Trf Terminal"                     # ElmTerm — HV side of main transformer
+  lv_busbar:     "WPW11_INV_A"                           # ElmTerm — representative LV terminal
+  puc_breaker:   "PUC"                                   # ElmCoup — point of utility connection
+  inverter:      "WPW11GU01"                             # ElmGenstat — representative inverter
+  inverter_set:  ""                                      # IntSet (?) of all relevant inverters (ElmGenstat)
+
+  station_ctrl:  "Sonvanger Station Control"             # ElmStactrl — "" for auto-detect
+  pfc_ctrl:      "Sonvanger Power-Frequency Controller"  # ElmSecctrl — "" for auto-detect
+  external_grid: "Grid"                                  # ElmXnet
+
+signals:
+  grid_voltage:  "xyz"                                   # Grid voltage
+  pp_P:          "..."                                   # Power Park Active Power
+  pp_Q:          "..."                                   # Power Park Reactive Power
+
+parameters:
+  q_control: 
+    path:        "path_to_parameter"
+    q:           "0"                                     # Example values!
+    cosphi:      "1"                                     # Example values!
+  othercontrolparameter: 
+    path: "..."
+    param_setting1: "..."

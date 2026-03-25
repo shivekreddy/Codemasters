@@ -1,0 +1,21 @@
+# Config template for Requirements of type "lvrt".
+# Structure can be different for other requirement types!
+# WIP - Add and change if necessary
+
+requirement_type: 'lvrt'
+
+requirements:
+  lvrt_curve:
+    0.000: 0.00
+    0.420: 0.00
+    0.420: 0.05
+    0.900: 0.20
+    1.550: 0.40
+    2.200: 0.60
+    3.000: 0.85
+    3.000: 1.00
+
+  active_power_recovery:
+    min_fraction: 0.90    # must restore to >= 90% of pre-fault active power
+    within_s:     1.00    # within 1s after fault clearance
+
