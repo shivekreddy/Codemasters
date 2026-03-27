@@ -41,12 +41,15 @@ class Configuration:
     @classmethod
     def from_dict(cls, data: dict) -> Configuration:
         """Create Configuration from a dictionary."""
+
+
+
         types = {}
         
-        for name, type_data in data.get("types", {}).items():
-            type_def = TypeDefinition.from_dict(name, type_data)
+        # for name, type_data in data.get("types", {}).items():
+        #     type_def = TypeDefinition.from_dict(name, type_data)
       
-            types[name] = type_def
+        #     types[name] = type_def
         
         return cls(
             types=types
@@ -78,6 +81,7 @@ class ConfigLoader:
             yaml.YAMLError: If the YAML is malformed.
             ValueError: If required configuration fields are missing.
         """
+        print(f"Loading Config File {self.config_path}")
         if not self.config_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
         
@@ -87,9 +91,13 @@ class ConfigLoader:
         if not data:
             raise ValueError("Configuration file is empty")
         
-        if "types" not in data:
-            raise ValueError("Configuration must contain 'types' section")
+        if "config_type" not in data:
+            raise ValueError("Configuration must contain 'config_type' section")
         
+        # Validate the config file
+        warnings = self.validate(data)
+        print(warnings)
+
         self._config = Configuration.from_dict(data)
         return self._config
     
@@ -100,7 +108,7 @@ class ConfigLoader:
             self.load()
         return self._config
     
-    def validate(self) -> list[str]:
+    def validate(self, config: dict) -> list[str]:
         """
         Validate the configuration and return any warnings.
         
@@ -108,16 +116,64 @@ class ConfigLoader:
             List of warning messages (empty if no issues).
         """
         warnings = []
-        config = self.config
-        
+
+        #Select correct verification schema based on config file type
+        match config['config_type']:
+            case 'grid_code_requirements':
+                schema_path = "./config/master_templates/grid-code-requirements_template.yaml"
+                print(f'Verifying config against master template located in {schema_path}')
+            case _:
+                print(f"config_type is not set correctly in {self.config_path}. \n Cannot verify config file integrity.")
+                exit()
+        with open(schema_path, "r", encoding="utf-8") as f:
+            schema = yaml.safe_load(f)
+        self.check_structure(schema, config, path="", warnings=warnings)
+
+        if len(warnings)==0:
+            warnings.append('Config structure verified.')
+
         # HERE WE CAN VALIDATE THE CONFIGURATION AND APPEND ANY WARNINGS TO THE LIST
         
         return warnings
     
+    def check_structure(self, schema: Any, data: Any, path: str, warnings: list[str]):
+        
+        if isinstance(schema, dict):
+            if not isinstance(data, dict):
+                warnings.append(
+                    f"Type mismatch at '{path}': expected dict, got {type(data).__name__}"
+                )
+                return
+
+
+            
+            for key, sub_schema in schema.items():
+                current_path = f"{path}.{key}" if path else key
+
+                if key not in data:
+                    warnings.append(f"Missing key: {current_path}")
+                    continue
+
+                self.check_structure(sub_schema, data[key], current_path, warnings)
+
+            # Schema expects a list
+        elif isinstance(schema, list):
+            if not isinstance(data, list):
+                warnings.append(
+                    f"Type mismatch at '{path}': expected list, got {type(data).__name__}"
+                )
+
+            # Scalar → no structural validation needed
+            else:
+                pass
+        
+
     
 if __name__ == "__main__":
     
     sample_config = {'types': {'LVRT': {'description': 'Low Voltage Ride Through'}, 'Harmonics': {'description': 'Harmonic Distortion'}}}
     
-    config = Configuration.from_dict(sample_config)
-    print(config)
+    # config = Configuration.from_dict(sample_config)
+    # print(config)
+
+    validate_config = ConfigLoader("./config/germany_vde-4110_typeC.yaml").load()

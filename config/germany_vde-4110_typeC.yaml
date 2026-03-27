@@ -272,3 +272,21 @@ requirements_type_2:
     applicable: true
     evaluation_method: rms
     reactive_current:
+      enabled: true
+      proportional_to_voltage_deviation: true
+      k_factor_range:
+        min: 2
+        max: 6
+      response_time_ms:
+        start: 30
+        full: 60
+    priority: reactive_over_active
+
+  # Short‑circuit current behaviour of converter‑based plants (VDE-AR-N 4110 §10.2.5)
+  short_circuit_contribution:
+    applicable: true
+    evaluation_method: calculation
+    required: true
+    behaviour: converter_limited
+    calculation_standard: IEC_60909
+    time_points_ms: null
