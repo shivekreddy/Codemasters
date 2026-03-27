@@ -1,0 +1,207 @@
+# ----------------------------------------------------------------------
+# Use this template for any to be added grid-code
+# Non-relevant entries can be left as 'null'
+# Set 'applicable' field to true/false depending on the gc requirements.
+# ----------------------------------------------------------------------
+
+meta:
+  country: null
+  tso: null
+  grid_code:
+    name: null
+    version: null
+    legal_basis: null
+  voltage_level: null
+  module_type: null         # e.g. NC RfG A/B/C/D
+  certification_type: null  # e.g. DE: A/B/C, others: full / partial
+  reference_point: null     # usually NAP / PCC
+
+assumptions:
+  nominal_frequency_hz: null
+  voltage_reference_pu: null
+  sign_convention:
+    P_positive: null
+    Q_positive: null
+
+# ============================================================================
+# COMMON REQUIREMENTS
+# Apply to all plant technologies unless explicitly stated otherwise
+# ============================================================================
+
+requirements_common:
+
+  frequency_operation:
+    # Frequency operating ranges, ROCOF withstand
+    # Source: NC RfG Art. 13–15, VDE-AR-N 41x0 §5.3, EIFS 2018:2 ch.3
+    steady_state:
+      limits_hz:
+        min: null
+        max: null
+      minimum_operation_times: null
+    rocof:
+      max_hz_per_s: null
+    verification: null
+
+  voltage_operation:
+    # Continuous voltage operating range
+    # Source: VDE-AR-N 41x0 §5.3, NC RfG Art. 16
+    steady_state_band_pu:
+      min: null
+      max: null
+    overvoltage_endurance:
+      levels: null
+    undervoltage_endurance:
+      levels: null
+
+  active_power_control:
+    # Active power controllability and ramping
+    # Source: NC RfG Art. 15, EIFS 2018:2 §19
+    setpoint_changes:
+      start_time_s: null
+      full_range_time_s: null
+      tolerance_percent: null
+    ramp_rates:
+      percent_per_min: null
+
+  reactive_power_capability:
+    # Minimum reactive power capability at NAP
+    evaluation_point: NAP
+    normalization: Q_over_P_inst
+    project_defined: false    # for NL and SWE, the requirements are defined on a project by project basis.
+    variants:
+      standard:
+        description: "cosφ ≥ 0.95 inductive to capacitive"
+        p_reduction_allowed: true
+        voltage_dependency:
+          voltage_pu_to_q_limits:
+            0.95:
+              q_min_pu: -0.33
+              q_max_pu:  0.33
+            1.00:
+              q_min_pu: -0.33
+              q_max_pu:  0.33
+            1.05:
+              q_min_pu: -0.33
+              q_max_pu:  0.33
+
+  power_quality:
+    # Harmonics, flicker, other emissions
+    # Source: IEC 61000 series, VDE-AR-N 41x0 §5.4
+    harmonics:
+      standard: null
+      limits_reference: null
+    flicker:
+      pst_max: null
+      plt_max: null
+
+  simulation_model:
+    # General model requirements for compliance assessment
+    # Source: VDE-AR-N 41x0 §10.6 / §11, SvK Bilaga 5 ch.2
+    required: null
+    model_type: null
+    validation_required: null
+    accuracy_requirements:
+      active_power_percent: null
+      reactive_power_percent: null
+      voltage_percent: null
+    simulation_requirements: null
+
+# ============================================================================
+# REQUIREMENTS FOR TYPE 1 PLANTS (SYNCHRONOUS MACHINES)
+# ============================================================================
+
+requirements_type_1:
+
+  fault_ride_through:
+    # Voltage immunity of synchronous generators during faults
+    # Source: VDE-AR-N 41x0 Annex FRT, EIFS 2018:2 §§11,35
+    applicable: null
+    fault_types: null
+    voltage_time_curve_pu: null
+    stay_connected_above_curve: null
+    post_fault_recovery:
+      voltage_pu: null
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  short_circuit_contribution:
+    # Short-circuit current contribution of synchronous machines
+    # Source: DIN EN 60909, VDE-AR-N 41x0 §10.2.5
+    required: null
+    behaviour: null
+    calculation_standard: null
+    time_points_ms: null
+
+# ============================================================================
+# REQUIREMENTS FOR TYPE 2 PLANTS (CONVERTER-BASED)
+# ============================================================================
+
+requirements_type_2:
+
+  active_power_frequency_response:
+    # Frequency response (LFSM-O / LFSM-U / FSM)
+    # Source: NC RfG Art. 13–15, EIFS 2018:2 §§3–7
+    lfsm_o:
+      applicable: null
+      activation_threshold_hz: null
+      droop_percent: null
+      deadband_hz: null
+      response:
+        start_time_s: null
+        full_activation_s: null
+    lfsm_u:
+      applicable: null
+      activation_threshold_hz: null
+      droop_percent: null
+      deadband_hz: null
+      response:
+        start_time_s: null
+        full_activation_s: null
+    fsm:
+      applicable: null
+      droop_percent_range:
+        min: null
+        max: null
+      deadband_hz_range:
+        min: null
+        max: null
+      full_response_duration_min: null
+    verification: null
+
+  fault_ride_through:
+    # LVRT/FRT requirements for converter-based plants
+    # Source: VDE-AR-N 41x0 Annex FRT, NC RfG Art. 16, EIFS 2018:2 §12
+    applicable: null
+    fault_types: null
+    voltage_time_curve_pu: null
+    stay_connected_above_curve: null
+    post_fault_recovery:
+      voltage_pu: null
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  dynamic_voltage_support:
+    # Reactive current injection during voltage dips
+    # Source: NC RfG Art. 16, VDE-AR-N 41x0 §10.2.3
+    reactive_current:
+      enabled: null
+      proportional_to_voltage_deviation: null
+      k_factor_range:
+        min: null
+        max: null
+      response_time_ms:
+        start: null
+        full: null
+    priority: null
+
+  short_circuit_contribution:
+    # Converter short-circuit behaviour (limited, controlled)
+    # Source: VDE-AR-N 41x0 §10.2.5, IEC TR 60909-1
+    required: null
+    behaviour: null
+    calculation_standard: null
+    time_points_ms: null
