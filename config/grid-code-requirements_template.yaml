@@ -1,156 +1,187 @@
-# ----------------------------------------------------------------------
-# Use this template for any to be added grid-code
-# Non-relevant entries can be left as 'null'
-# Set 'applicable' field to true/false depending on the gc requirements.
-# ----------------------------------------------------------------------
+# ============================================================================
+# APPLICABILITY SEMANTICS (GLOBAL)
+#
+# applicable: true   → mandated by grid code, MUST be verified
+# applicable: false  → explicitly not required, MUST be ignored
+# applicable: null   → project-specific or conditionally applicable
+# ============================================================================
+config_type: grid_code_requirements  # fixed identifier for this config class
 
 meta:
-  country: null
-  tso: null
+  country: null                     # ISO country name as string (e.g. Germany)
+  tso: null                         # TSO/DSO name as string
   grid_code:
-    name: null
-    version: null
-    legal_basis: null
-  voltage_level: null
-  module_type: null         # e.g. NC RfG A/B/C/D
-  certification_type: null  # e.g. DE: A/B/C, others: full / partial
-  reference_point: null     # usually NAP / PCC
+    name: null                      # formal grid code name (string)
+    version: null                   # version or publication date (string)
+    legal_basis: null               # legal reference (string or list of strings)
+  voltage_level: null               # e.g. medium_voltage | high_voltage | transmission
+  module_type: null                 # NC RfG module type (A | B | C | D)
+  certification_type: null          # e.g. A | B | full_compliance
+  reference_point: null             # grid reference point, usually "NAP"
 
 assumptions:
-  nominal_frequency_hz: null
-  voltage_reference_pu: null
+  nominal_frequency_hz: null        # nominal system frequency in Hz
+  voltage_reference_pu: null        # per-unit voltage reference (usually 1.0)
   sign_convention:
-    P_positive: null
-    Q_positive: null
+    P_positive: null                # "generation" or "consumption"
+    Q_positive: null                # "inductive" or "capacitive"
 
 # ============================================================================
-# COMMON REQUIREMENTS
-# Apply to all plant technologies unless explicitly stated otherwise
+# COMMON REQUIREMENTS (technology‑neutral)
 # ============================================================================
 
 requirements_common:
 
   frequency_operation:
-    # Frequency operating ranges, ROCOF withstand
-    # Source: NC RfG Art. 13–15, VDE-AR-N 41x0 §5.3, EIFS 2018:2 ch.3
+    applicable: null
+    evaluation_method: rms           # rms | calculation
     steady_state:
       limits_hz:
-        min: null
-        max: null
-      minimum_operation_times: null
+        min: null                    # minimum frequency in Hz
+        max: null                    # maximum frequency in Hz
+      minimum_operation_times: null  # map of frequency ranges to durations
     rocof:
-      max_hz_per_s: null
-    verification: null
+      max_hz_per_s: null             # maximum ROCOF in Hz/s
+    verification: null               # free text or structured reference
 
   voltage_operation:
-    # Continuous voltage operating range
-    # Source: VDE-AR-N 41x0 §5.3, NC RfG Art. 16
+    applicable: null
+    evaluation_method: rms
     steady_state_band_pu:
-      min: null
-      max: null
+      min: null                      # minimum voltage in pu
+      max: null                      # maximum voltage in pu
     overvoltage_endurance:
-      levels: null
+      levels: null                   # optional list of (voltage, duration) pairs
     undervoltage_endurance:
-      levels: null
+      levels: null                   # optional list of (voltage, duration) pairs
 
   active_power_control:
-    # Active power controllability and ramping
-    # Source: NC RfG Art. 15, EIFS 2018:2 §19
+    applicable: null
+    evaluation_method: rms
     setpoint_changes:
-      start_time_s: null
-      full_range_time_s: null
-      tolerance_percent: null
+      start_time_s: null             # delay before response in seconds
+      full_range_time_s: null        # time to reach new setpoint in seconds
+      tolerance_percent: null        # allowed deviation in percent
     ramp_rates:
-      percent_per_min: null
+      percent_per_min: null          # ramp rate in % of P_inst per minute
+
+  active_power_voltage_dependency:
+    applicable: null
+    evaluation_method: rms
+    project_defined: null            # true if defined by TSO per project
+    p_reduction_required: null       # boolean, P reduction at high voltage
+    voltage_dependency:
+      voltage_pu_to_p_limits: null   # map: voltage pu → max allowed P (pu or %)
+    recovery_after_voltage_normalization:
+      required: null                # boolean, restore P after voltage recovery
+
+  reactive_power_voltage_dependency:
+    applicable: null
+    evaluation_method: rms
+    project_defined: null            # true if Q(U) defined per project
+    characteristic:
+      defined_externally: null       # boolean, outside grid code
+    override_by_tso: null            # boolean, TSO may override characteristic
 
   reactive_power_capability:
-    # Minimum reactive power capability at NAP
-    evaluation_point: NAP
-    normalization: Q_over_P_inst
-    project_defined: false    # for NL and SWE, the requirements are defined on a project by project basis.
-    variants:
-      standard:
-        description: "cosφ ≥ 0.95 inductive to capacitive"
-        p_reduction_allowed: true
-        voltage_dependency:
-          voltage_pu_to_q_limits:
-            0.95:
-              q_min_pu: -0.33
-              q_max_pu:  0.33
-            1.00:
-              q_min_pu: -0.33
-              q_max_pu:  0.33
-            1.05:
-              q_min_pu: -0.33
-              q_max_pu:  0.33
+    applicable: null
+    evaluation_method: rms
+    evaluation_point: null           # NAP | PCC | POI
+    normalization: null              # Q_over_P_inst | Q_absolute
+    project_defined: null            # true if envelope defined per project
+    variants: null                   # map of capability variants (or null)
+
+  voltage_deviation_due_to_reactive_power:
+    applicable: null
+    evaluation_method: rms
+    project_defined: null
+    max_voltage_deviation_pu:
+      absolute: null                 # absolute voltage deviation in pu
+      per_reactive_power_step: null  # ΔU per ΔQ step (pu / pu)
+      defined_externally: null       # true if limits defined by TSO
 
   power_quality:
-    # Harmonics, flicker, other emissions
-    # Source: IEC 61000 series, VDE-AR-N 41x0 §5.4
+    applicable: null
+    evaluation_method: rms
     harmonics:
-      standard: null
-      limits_reference: null
+      standard: null                 # IEC standard identifier (string)
+      limits_reference: null         # reference document for limits
     flicker:
-      pst_max: null
-      plt_max: null
+      pst_max: null                  # short-term flicker limit (dimensionless)
+      plt_max: null                  # long-term flicker limit (dimensionless)
 
   simulation_model:
-    # General model requirements for compliance assessment
-    # Source: VDE-AR-N 41x0 §10.6 / §11, SvK Bilaga 5 ch.2
-    required: null
-    model_type: null
-    validation_required: null
+    applicable: null
+    evaluation_method: rms
+    required: null                   # boolean, simulation model required
+    model_type: null                 # rms | emt | simplified
+    validation_required: null        # boolean, model validation required
     accuracy_requirements:
-      active_power_percent: null
-      reactive_power_percent: null
-      voltage_percent: null
-    simulation_requirements: null
+      active_power_percent: null     # max error in percent
+      reactive_power_percent: null   # max error in percent
+      voltage_percent: null          # max error in percent
+    simulation_requirements: null    # free or structured simulation instructions
 
 # ============================================================================
-# REQUIREMENTS FOR TYPE 1 PLANTS (SYNCHRONOUS MACHINES)
+# TYPE 1 REQUIREMENTS (synchronous machines)
 # ============================================================================
 
 requirements_type_1:
 
   fault_ride_through:
-    # Voltage immunity of synchronous generators during faults
-    # Source: VDE-AR-N 41x0 Annex FRT, EIFS 2018:2 §§11,35
     applicable: null
-    fault_types: null
-    voltage_time_curve_pu: null
-    stay_connected_above_curve: null
+    evaluation_method: rms
+    fault_types: null                # list: three_phase | two_phase | single_phase
+    voltage_time_curve_pu: null      # map: time (s) → voltage (pu)
+    stay_connected_above_curve: null # boolean
     post_fault_recovery:
-      voltage_pu: null
+      voltage_pu: null               # minimum voltage after fault in pu
       active_power:
-        recovery_time_s: null
-        tolerance_percent: null
+        recovery_time_s: null        # recovery time in seconds
+        tolerance_percent: null      # allowed deviation in percent
     verification: null
 
+  active_power_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: null
+    recovery_to_prefault_percent: null  # target recovery level in percent
+    recovery_time_s:
+      max: null                      # maximum recovery time in seconds
+    recovery_gradient:
+      percent_per_s: null            # minimum gradient in % per second
+
+  voltage_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: null
+    recovery_levels: null            # map of voltage (pu) → time (s)
+
   short_circuit_contribution:
-    # Short-circuit current contribution of synchronous machines
-    # Source: DIN EN 60909, VDE-AR-N 41x0 §10.2.5
-    required: null
-    behaviour: null
-    calculation_standard: null
-    time_points_ms: null
+    applicable: null
+    evaluation_method: calculation
+    required: null                   # boolean
+    behaviour: null                  # synchronous | voltage_source
+    calculation_standard: null       # e.g. IEC_60909
+    time_points_ms: null             # list of evaluation times in ms
 
 # ============================================================================
-# REQUIREMENTS FOR TYPE 2 PLANTS (CONVERTER-BASED)
+# TYPE 2 REQUIREMENTS (converter‑based plants)
 # ============================================================================
 
 requirements_type_2:
 
   active_power_frequency_response:
-    # Frequency response (LFSM-O / LFSM-U / FSM)
-    # Source: NC RfG Art. 13–15, EIFS 2018:2 §§3–7
+    applicable: null
+    evaluation_method: rms
     lfsm_o:
       applicable: null
-      activation_threshold_hz: null
-      droop_percent: null
-      deadband_hz: null
+      activation_threshold_hz: null  # frequency threshold in Hz
+      droop_percent: null            # droop in percent
+      deadband_hz: null              # deadband width in Hz
       response:
-        start_time_s: null
-        full_activation_s: null
+        start_time_s: null           # response delay in seconds
+        full_activation_s: null      # time to full activation in seconds
     lfsm_u:
       applicable: null
       activation_threshold_hz: null
@@ -162,18 +193,26 @@ requirements_type_2:
     fsm:
       applicable: null
       droop_percent_range:
-        min: null
-        max: null
+        min: null                    # minimum droop in percent
+        max: null                    # maximum droop in percent
       deadband_hz_range:
-        min: null
-        max: null
-      full_response_duration_min: null
+        min: null                    # minimum deadband in Hz
+        max: null                    # maximum deadband in Hz
+      full_response_duration_min: null  # minimum duration in seconds
     verification: null
 
-  fault_ride_through:
-    # LVRT/FRT requirements for converter-based plants
-    # Source: VDE-AR-N 41x0 Annex FRT, NC RfG Art. 16, EIFS 2018:2 §12
+  sustained_frequency_support:
     applicable: null
+    evaluation_method: rms
+    project_defined: null
+    minimum_duration_s: null         # minimum support duration in seconds
+    discontinuation_conditions:
+      frequency_restored: null       # boolean
+      tso_release_required: null     # boolean
+
+  fault_ride_through:
+    applicable: null
+    evaluation_method: rms
     fault_types: null
     voltage_time_curve_pu: null
     stay_connected_above_curve: null
@@ -184,24 +223,30 @@ requirements_type_2:
         tolerance_percent: null
     verification: null
 
+  voltage_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: null
+    recovery_levels: null
+
   dynamic_voltage_support:
-    # Reactive current injection during voltage dips
-    # Source: NC RfG Art. 16, VDE-AR-N 41x0 §10.2.3
+    applicable: null
+    evaluation_method: rms
     reactive_current:
-      enabled: null
-      proportional_to_voltage_deviation: null
+      enabled: null                  # boolean
+      proportional_to_voltage_deviation: null  # boolean
       k_factor_range:
-        min: null
-        max: null
+        min: null                    # minimum gain factor (dimensionless)
+        max: null                    # maximum gain factor (dimensionless)
       response_time_ms:
-        start: null
-        full: null
-    priority: null
+        start: null                  # response delay in ms
+        full: null                   # time to full response in ms
+    priority: null                   # reactive_over_active | balanced
 
   short_circuit_contribution:
-    # Converter short-circuit behaviour (limited, controlled)
-    # Source: VDE-AR-N 41x0 §10.2.5, IEC TR 60909-1
+    applicable: null
+    evaluation_method: calculation
     required: null
-    behaviour: null
+    behaviour: null                  # converter_limited | voltage_source
     calculation_standard: null
     time_points_ms: null
