@@ -1,0 +1,279 @@
+config_type: grid_code_requirements
+
+meta:
+  country: Germany
+  tso: German TSOs
+  grid_code:
+    name: VDE-AR-N 4120
+    version: "2018-11"
+    legal_basis: NELEV + NC RfG
+  voltage_level: high_voltage
+  module_type: B
+  certification_type: null
+  reference_point: NAP
+
+assumptions:
+  nominal_frequency_hz: 50
+  voltage_reference_pu: 1.0
+  sign_convention:
+    P_positive: generation
+    Q_positive: inductive
+
+# ============================================================================
+# COMMON REQUIREMENTS (technology‑neutral)
+# ============================================================================
+
+requirements_common:
+
+  # Frequency withstand capability and ROCOF limits (VDE-AR-N 4120 §5.3)
+  frequency_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state:
+      limits_hz:
+        min: 47.5
+        max: 51.5
+      minimum_operation_times: null
+    rocof:
+      max_hz_per_s: 2.0
+    verification: null
+
+  # Continuous voltage operating range (VDE-AR-N 4120 §5.3)
+  voltage_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state_band_pu:
+      min: 0.90
+      max: 1.10
+    overvoltage_endurance:
+      levels: null
+    undervoltage_endurance:
+      levels: null
+
+  # Active power controllability (not required for Type B) (NC RfG Art. 15)
+  active_power_control:
+    applicable: false
+    evaluation_method: rms
+    setpoint_changes:
+      start_time_s: null
+      full_range_time_s: null
+      tolerance_percent: null
+    ramp_rates:
+      percent_per_min: null
+
+  # Voltage‑dependent active power reduction P(U) (VDE-AR-N 4120 §10.3.3)
+  active_power_voltage_dependency:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    p_reduction_required: true
+    voltage_dependency:
+      voltage_pu_to_p_limits:
+        defined_externally: false
+    recovery_after_voltage_normalization:
+      required: true
+
+  # Steady‑state reactive power voltage dependency Q(U) (VDE-AR-N 4120 §10.2.4)
+  reactive_power_voltage_dependency:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    characteristic:
+      defined_externally: false
+    override_by_tso: true
+
+  # Reactive power capability at NAP (VDE-AR-N 4120 §5.5 / §10.2.2)
+  reactive_power_capability:
+    applicable: true
+    evaluation_method: rms
+    evaluation_point: NAP
+    normalization: Q_over_P_inst
+    project_defined: false
+    variants:
+      standard:
+        description: "Minimum reactive power capability for Type B"
+        p_reduction_allowed: true
+        voltage_dependency:
+          voltage_pu_to_q_limits:
+            0.95:
+              q_min_pu: -0.33
+              q_max_pu: 0.33
+            1.00:
+              q_min_pu: -0.33
+              q_max_pu: 0.33
+            1.05:
+              q_min_pu: -0.33
+              q_max_pu: 0.33
+
+  # Voltage deviation caused by reactive power changes (VDE-AR-N 4120 §5.3)
+  voltage_deviation_due_to_reactive_power:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    max_voltage_deviation_pu:
+      absolute: null
+      per_reactive_power_step: null
+      defined_externally: false
+
+  # Power quality limits (VDE-AR-N 4120 §5.4)
+  power_quality:
+    applicable: true
+    evaluation_method: rms
+    harmonics:
+      standard: IEC_61000_4_7
+      limits_reference: IEC_TR_61000_3_6
+    flicker:
+      pst_max: 0.8
+      plt_max: 0.4
+
+  # Simulation model requirements (reduced scope for Type B) (VDE-AR-N 4120 §11)
+  simulation_model:
+    applicable: false
+    evaluation_method: rms
+    required: false
+    model_type: null
+    validation_required: null
+    accuracy_requirements:
+      active_power_percent: null
+      reactive_power_percent: null
+      voltage_percent: null
+    simulation_requirements: null
+
+# ============================================================================
+# TYPE 1 REQUIREMENTS (synchronous machines)
+# ============================================================================
+
+requirements_type_1:
+
+  # Fault ride‑through of synchronous machines (not required for Type B)
+  fault_ride_through:
+    applicable: false
+    evaluation_method: rms
+    fault_types: null
+    voltage_time_curve_pu: null
+    stay_connected_above_curve: null
+    post_fault_recovery:
+      voltage_pu: null
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  # Active power recovery after fault (not required)
+  active_power_recovery_after_fault:
+    applicable: false
+    evaluation_method: rms
+    project_defined: null
+    recovery_to_prefault_percent: null
+    recovery_time_s:
+      max: null
+    recovery_gradient:
+      percent_per_s: null
+
+  # Voltage recovery after fault (not required)
+  voltage_recovery_after_fault:
+    applicable: false
+    evaluation_method: rms
+    project_defined: null
+    recovery_levels: null
+
+  # Short‑circuit contribution (not required for Type B)
+  short_circuit_contribution:
+    applicable: false
+    evaluation_method: calculation
+    required: null
+    behaviour: null
+    calculation_standard: null
+    time_points_ms: null
+
+# ============================================================================
+# TYPE 2 REQUIREMENTS (converter‑based plants)
+# ============================================================================
+
+requirements_type_2:
+
+  # LFSM‑O only (NC RfG Art. 13; VDE-AR-N 4120 §10.3.1)
+  active_power_frequency_response:
+    applicable: true
+    evaluation_method: rms
+    lfsm_o:
+      applicable: true
+      activation_threshold_hz: 50.2
+      droop_percent: 5
+      deadband_hz: 0.2
+      response:
+        start_time_s: null
+        full_activation_s: null
+    lfsm_u:
+      applicable: false
+      activation_threshold_hz: null
+      droop_percent: null
+      deadband_hz: null
+      response:
+        start_time_s: null
+        full_activation_s: null
+    fsm:
+      applicable: false
+      droop_percent_range:
+        min: null
+        max: null
+      deadband_hz_range:
+        min: null
+        max: null
+      full_response_duration_min: null
+    verification: null
+
+  # Sustained frequency response (not required for Type B)
+  sustained_frequency_support:
+    applicable: false
+    evaluation_method: rms
+    project_defined: null
+    minimum_duration_s: null
+    discontinuation_conditions:
+      frequency_restored: null
+      tso_release_required: null
+
+  # LVRT/FRT for converter‑based plants (not required for Type B)
+  fault_ride_through:
+    applicable: false
+    evaluation_method: rms
+    fault_types: null
+    voltage_time_curve_pu: null
+    stay_connected_above_curve: null
+    post_fault_recovery:
+      voltage_pu: null
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  # Voltage recovery after fault (not required)
+  voltage_recovery_after_fault:
+    applicable: false
+    evaluation_method: rms
+    project_defined: null
+    recovery_levels: null
+
+  # Dynamic voltage support (not required for Type B)
+  dynamic_voltage_support:
+    applicable: false
+    evaluation_method: rms
+    reactive_current:
+      enabled: null
+      proportional_to_voltage_deviation: null
+      k_factor_range:
+        min: null
+        max: null
+      response_time_ms:
+        start: null
+        full: null
+    priority: null
+
+  # Short‑circuit current behaviour of converter‑based plants (not required)
+  short_circuit_contribution:
+    applicable: false
+    evaluation_method: calculation
+    required: null
+    behaviour: null
+    calculation_standard: null
+    time_points_ms: null
