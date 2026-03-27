@@ -1,0 +1,308 @@
+config_type: grid_code_requirements
+
+meta:
+  country: Germany
+  tso: German TSOs
+  grid_code:
+    name: VDE-AR-N 4130
+    version: "2018-11"
+    legal_basis: NELEV + NC RfG
+  voltage_level: extra_high_voltage
+  module_type: C
+  certification_type: null
+  reference_point: NAP
+
+assumptions:
+  nominal_frequency_hz: 50
+  voltage_reference_pu: 1.0
+  sign_convention:
+    P_positive: generation
+    Q_positive: inductive
+
+# ============================================================================
+# COMMON REQUIREMENTS (technology‑neutral)
+# ============================================================================
+
+requirements_common:
+
+  # Frequency withstand capability and ROCOF limits (VDE-AR-N 4130 §5.3)
+  frequency_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state:
+      limits_hz:
+        min: 47.5
+        max: 51.5
+      minimum_operation_times: null
+    rocof:
+      max_hz_per_s: 2.0
+    verification: null
+
+  # Continuous voltage operating range (VDE-AR-N 4130 §5.3)
+  voltage_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state_band_pu:
+      min: 0.90
+      max: 1.10
+    overvoltage_endurance:
+      levels: null
+    undervoltage_endurance:
+      levels: null
+
+  # Active power controllability and ramping (VDE-AR-N 4130 §10.3.1)
+  active_power_control:
+    applicable: true
+    evaluation_method: rms
+    setpoint_changes:
+      start_time_s: 5
+      full_range_time_s: 60
+      tolerance_percent: 2
+    ramp_rates:
+      percent_per_min: 100
+
+  # Voltage-dependent active power reduction P(U) (VDE-AR-N 4130 §10.3.3)
+  active_power_voltage_dependency:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    p_reduction_required: true
+    voltage_dependency:
+      voltage_pu_to_p_limits:
+        defined_externally: false
+    recovery_after_voltage_normalization:
+      required: true
+
+  # Steady‑state reactive power as function of voltage Q(U) (VDE-AR-N 4130 §10.2.4)
+  reactive_power_voltage_dependency:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    characteristic:
+      defined_externally: false
+    override_by_tso: true
+
+  # Static reactive power capability at NAP with selectable variants (VDE-AR-N 4130 §5.5 / §10.2.2)
+  reactive_power_capability:
+    applicable: true
+    evaluation_method: rms
+    evaluation_point: NAP
+    normalization: Q_over_P_inst
+    project_defined: false
+    variants:
+
+      variant_1:
+        description: "Minimum reactive power capability – Variant 1 (Fig. 5)"
+        p_reduction_allowed: true
+        voltage_dependency:
+          voltage_pu_to_q_limits:
+            0.95: { q_min_pu: -0.20, q_max_pu: 0.30 }
+            1.00: { q_min_pu: -0.25, q_max_pu: 0.30 }
+            1.05: { q_min_pu: -0.30, q_max_pu: 0.25 }
+
+      variant_2:
+        description: "Minimum reactive power capability – Variant 2 (Fig. 5)"
+        p_reduction_allowed: true
+        voltage_dependency:
+          voltage_pu_to_q_limits:
+            0.95: { q_min_pu: -0.15, q_max_pu: 0.33 }
+            1.00: { q_min_pu: -0.20, q_max_pu: 0.33 }
+            1.05: { q_min_pu: -0.25, q_max_pu: 0.30 }
+
+      variant_3:
+        description: "Minimum reactive power capability – Variant 3 (Fig. 5)"
+        p_reduction_allowed: true
+        voltage_dependency:
+          voltage_pu_to_q_limits:
+            0.95: { q_min_pu: -0.10, q_max_pu: 0.35 }
+            1.00: { q_min_pu: -0.15, q_max_pu: 0.35 }
+            1.05: { q_min_pu: -0.20, q_max_pu: 0.33 }
+
+  # Voltage deviation caused by reactive power changes (VDE-AR-N 4130 §5.3)
+  voltage_deviation_due_to_reactive_power:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    max_voltage_deviation_pu:
+      absolute: null
+      per_reactive_power_step: null
+      defined_externally: false
+
+  # Power quality limits (VDE-AR-N 4130 §5.4)
+  power_quality:
+    applicable: true
+    evaluation_method: rms
+    harmonics:
+      standard: IEC_61000_4_7
+      limits_reference: IEC_TR_61000_3_6
+    flicker:
+      pst_max: 0.8
+      plt_max: 0.4
+
+  # Mandatory RMS simulation model (VDE-AR-N 4130 §11)
+  simulation_model:
+    applicable: true
+    evaluation_method: rms
+    required: true
+    model_type:
+      - rms
+    validation_required: true
+    accuracy_requirements:
+      active_power_percent: 5
+      reactive_power_percent: 5
+      voltage_percent: 2
+    simulation_requirements:
+      frequency_steps: mandatory
+      frequency_ramps: mandatory
+      extended_fault_set: required
+
+# ============================================================================
+# TYPE 1 REQUIREMENTS (synchronous machines)
+# ============================================================================
+
+requirements_type_1:
+
+  # Fault ride‑through of synchronous machines (VDE-AR-N 4130 Annex FRT)
+  fault_ride_through:
+    applicable: true
+    evaluation_method: rms
+    fault_types:
+      - three_phase
+    voltage_time_curve_pu:
+      0.0: 1.0
+      0.15: 0.0
+      0.30: 0.30
+      1.00: 0.70
+      3.00: 0.90
+    stay_connected_above_curve: true
+    post_fault_recovery:
+      voltage_pu: 0.90
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  # Active power recovery after fault (VDE-AR-N 4130 Annex FRT)
+  active_power_recovery_after_fault:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    recovery_to_prefault_percent: null
+    recovery_time_s:
+      max: null
+    recovery_gradient:
+      percent_per_s: null
+
+  # Voltage recovery after fault (VDE-AR-N 4130 Annex FRT)
+  voltage_recovery_after_fault:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    recovery_levels: null
+
+  # Short‑circuit current contribution of synchronous units (VDE-AR-N 4130 §10.2.5)
+  short_circuit_contribution:
+    applicable: true
+    evaluation_method: calculation
+    required: true
+    behaviour: synchronous
+    calculation_standard: IEC_60909
+    time_points_ms: null
+
+# ============================================================================
+# TYPE 2 REQUIREMENTS (converter‑based plants)
+# ============================================================================
+
+requirements_type_2:
+
+  # LFSM‑O and LFSM‑U frequency response (VDE-AR-N 4130 §10.3.1)
+  active_power_frequency_response:
+    applicable: true
+    evaluation_method: rms
+    lfsm_o:
+      applicable: true
+      activation_threshold_hz: 50.2
+      droop_percent: 5
+      deadband_hz: 0.2
+      response:
+        start_time_s: null
+        full_activation_s: null
+    lfsm_u:
+      applicable: true
+      activation_threshold_hz: 49.8
+      droop_percent: 5
+      deadband_hz: 0.2
+      response:
+        start_time_s: null
+        full_activation_s: null
+    fsm:
+      applicable: false
+      droop_percent_range:
+        min: null
+        max: null
+      deadband_hz_range:
+        min: null
+        max: null
+      full_response_duration_min: null
+    verification: null
+
+  # Sustained frequency response (not mandatory for Type C)
+  sustained_frequency_support:
+    applicable: false
+    evaluation_method: rms
+    project_defined: null
+    minimum_duration_s: null
+    discontinuation_conditions:
+      frequency_restored: null
+      tso_release_required: null
+
+  # LVRT/FRT for converter-based plants (VDE-AR-N 4130 Annex FRT)
+  fault_ride_through:
+    applicable: true
+    evaluation_method: rms
+    fault_types:
+      - three_phase
+    voltage_time_curve_pu:
+      0.0: 1.0
+      0.15: 0.0
+      0.30: 0.30
+      1.00: 0.70
+      3.00: 0.90
+    stay_connected_above_curve: true
+    post_fault_recovery:
+      voltage_pu: 0.90
+      active_power:
+        recovery_time_s: 2.0
+        tolerance_percent: 5
+    verification: null
+
+  # Voltage recovery after fault (VDE-AR-N 4130 Annex FRT)
+  voltage_recovery_after_fault:
+    applicable: true
+    evaluation_method: rms
+    project_defined: false
+    recovery_levels: null
+
+  # Dynamic voltage support via reactive current injection (VDE-AR-N 4130 §10.2.3)
+  dynamic_voltage_support:
+    applicable: true
+    evaluation_method: rms
+    reactive_current:
+      enabled: true
+      proportional_to_voltage_deviation: true
+      k_factor_range:
+        min: 2
+        max: 6
+      response_time_ms:
+        start: 30
+        full: 60
+    priority: reactive_over_active
+
+  # Short‑circuit current behaviour of converter‑based plants (VDE-AR-N 4130 §10.2.5)
+  short_circuit_contribution:
+    applicable: true
+    evaluation_method: calculation
+    required: true
+    behaviour: converter_limited
+    calculation_standard: IEC_60909
+    time_points_ms: null
