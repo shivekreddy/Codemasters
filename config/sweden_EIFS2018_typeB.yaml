@@ -1,0 +1,269 @@
+config_type: grid_code_requirements
+
+meta:
+  country: Sweden
+  tso: Svenska kraftnät
+  grid_code:
+    name: EIFS 2018:2
+    version: "2018"
+    legal_basis: NC RfG (EU 2016/631) + national regulation
+  voltage_level: transmission
+  module_type: B
+  certification_type: full_compliance
+  reference_point: NAP
+
+assumptions:
+  nominal_frequency_hz: 50
+  voltage_reference_pu: 1.0
+  sign_convention:
+    P_positive: generation
+    Q_positive: inductive
+
+# ============================================================================
+# COMMON REQUIREMENTS (technology‑neutral)
+# ============================================================================
+
+requirements_common:
+
+  # Frequency withstand capability and ROCOF limits (EIFS 2018:2 Chapter 3 §§1–2)
+  frequency_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state:
+      limits_hz:
+        min: 47.5
+        max: 51.5
+      minimum_operation_times:
+        47.5_48.5: 30_min
+        48.5_49.0: 30_min
+        49.0_51.0: unlimited
+        51.0_51.5: 30_min
+    rocof:
+      max_hz_per_s: 2.0
+    verification: null
+
+  # Continuous voltage operating range (EIFS 2018:2 §18)
+  voltage_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state_band_pu:
+      min: 0.90
+      max: 1.05
+    overvoltage_endurance:
+      levels: null
+    undervoltage_endurance:
+      levels: null
+
+  # Active power controllability for Type B (EIFS 2018:2 §§8–9)
+  active_power_control:
+    applicable: false
+    evaluation_method: rms
+    setpoint_changes:
+      start_time_s: null
+      full_range_time_s: null
+      tolerance_percent: null
+    ramp_rates:
+      percent_per_min: null
+
+  # Voltage‑dependent active power reduction P(U) (EIFS 2018:2, SvK Bilaga 5)
+  active_power_voltage_dependency:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    p_reduction_required: true
+    voltage_dependency:
+      voltage_pu_to_p_limits:
+        defined_externally: true
+    recovery_after_voltage_normalization:
+      required: true
+
+  # Steady‑state reactive power as function of voltage Q(U) (EIFS 2018:2, SvK Bilaga 5)
+  reactive_power_voltage_dependency:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    characteristic:
+      defined_externally: true
+    override_by_tso: true
+
+  # Static reactive power capability at NAP (EIFS 2018:2, project‑specific)
+  reactive_power_capability:
+    applicable: null
+    evaluation_method: rms
+    evaluation_point: NAP
+    normalization: Q_over_P_inst
+    project_defined: true
+    variants: null
+
+  # Voltage deviation limits due to reactive power changes (EIFS 2018:2, SvK Bilaga 5)
+  voltage_deviation_due_to_reactive_power:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    max_voltage_deviation_pu:
+      absolute: null
+      per_reactive_power_step: null
+      defined_externally: true
+
+  # Power quality limits for harmonics and flicker (EIFS 2018:2 §17)
+  power_quality:
+    applicable: true
+    evaluation_method: rms
+    harmonics:
+      standard: IEC_61000_4_7
+      limits_reference: null
+    flicker:
+      pst_max: null
+      plt_max: null
+
+  # Simulation model obligations for Type B (SvK process – exemptions)
+  simulation_model:
+    applicable: false
+    evaluation_method: rms
+    required: false
+    model_type: null
+    validation_required: null
+    accuracy_requirements:
+      active_power_percent: null
+      reactive_power_percent: null
+      voltage_percent: null
+    simulation_requirements: null
+
+# ============================================================================
+# TYPE 1 REQUIREMENTS (synchronous machines)
+# ============================================================================
+
+requirements_type_1:
+
+  # Fault ride‑through of synchronous machines (not required for Type B)
+  fault_ride_through:
+    applicable: false
+    evaluation_method: rms
+    fault_types: null
+    voltage_time_curve_pu: null
+    stay_connected_above_curve: null
+    post_fault_recovery:
+      voltage_pu: null
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  # Active power recovery after fault (EIFS 2018:2, SvK Bilaga 5)
+  active_power_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    recovery_to_prefault_percent: null
+    recovery_time_s:
+      max: null
+    recovery_gradient:
+      percent_per_s: null
+
+  # Voltage recovery after fault (EIFS 2018:2, SvK Bilaga 5)
+  voltage_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    recovery_levels: null
+
+  # Short‑circuit contribution declaration (not required for Type B)
+  short_circuit_contribution:
+    applicable: false
+    evaluation_method: calculation
+    required: null
+    behaviour: null
+    calculation_standard: null
+    time_points_ms: null
+
+# ============================================================================
+# TYPE 2 REQUIREMENTS (converter‑based plants)
+# ============================================================================
+
+requirements_type_2:
+
+  # Limited Frequency Sensitive Mode – Overfrequency (EIFS 2018:2 §§3–6)
+  active_power_frequency_response:
+    applicable: true
+    evaluation_method: rms
+    lfsm_o:
+      applicable: true
+      activation_threshold_hz: 50.5
+      droop_percent: 8
+      deadband_hz: 0.5
+      response:
+        start_time_s: null
+        full_activation_s: null
+    lfsm_u:
+      applicable: false
+      activation_threshold_hz: null
+      droop_percent: null
+      deadband_hz: null
+      response:
+        start_time_s: null
+        full_activation_s: null
+    fsm:
+      applicable: false
+      droop_percent_range:
+        min: null
+        max: null
+      deadband_hz_range:
+        min: null
+        max: null
+      full_response_duration_min: null
+    verification: null
+
+  # Sustained frequency response (FSM persistence – not required for Type B)
+  sustained_frequency_support:
+    applicable: false
+    evaluation_method: rms
+    project_defined: null
+    minimum_duration_s: null
+    discontinuation_conditions:
+      frequency_restored: null
+      tso_release_required: null
+
+  # Fault ride‑through of converter‑based plants (not required for Type B)
+  fault_ride_through:
+    applicable: false
+    evaluation_method: rms
+    fault_types: null
+    voltage_time_curve_pu: null
+    stay_connected_above_curve: null
+    post_fault_recovery:
+      voltage_pu: null
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  # Voltage recovery after fault (EIFS 2018:2, SvK Bilaga 5)
+  voltage_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    recovery_levels: null
+
+  # Dynamic voltage support during faults (not required for Type B)
+  dynamic_voltage_support:
+    applicable: false
+    evaluation_method: rms
+    reactive_current:
+      enabled: null
+      proportional_to_voltage_deviation: null
+      k_factor_range:
+        min: null
+        max: null
+      response_time_ms:
+        start: null
+        full: null
+    priority: null
+
+  # Short‑circuit current behaviour of converter‑based plants (not required for Type B)
+  short_circuit_contribution:
+    applicable: false
+    evaluation_method: calculation
+    required: null
+    behaviour: null
+    calculation_standard: null
+    time_points_ms: null
