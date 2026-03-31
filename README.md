@@ -4,9 +4,9 @@ Dev platform for the GCC automation tool.
 **Focus on these modules first:**
 - [ ] PF Model sim setup - define config files in parallel
 - [ ] PF run sims
-- [x] create a basic config loader
+- [X] create a basic config loader
 	- [ ] add additional base_config subclass for each config type
-- [x] prepare requirements config files
+- [X] prepare requirements config files
 	- [ ] Update evaluation_method for finished requirement configs (loadflow, short-circuit, rms, emt)
 - [ ] Compare results with requirements
 - [ ] plot results with requirements
