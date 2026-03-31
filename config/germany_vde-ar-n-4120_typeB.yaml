@@ -64,7 +64,7 @@ requirements_common:
   # Voltage‑dependent active power reduction P(U) (VDE-AR-N 4120 §10.3.3)
   active_power_voltage_dependency:
     applicable: true
-    evaluation_method: rms
+    evaluation_method: null
     project_defined: false
     p_reduction_required: true
     voltage_dependency:
@@ -76,7 +76,7 @@ requirements_common:
   # Steady‑state reactive power voltage dependency Q(U) (VDE-AR-N 4120 §10.2.4)
   reactive_power_voltage_dependency:
     applicable: true
-    evaluation_method: rms
+    evaluation_method: null
     project_defined: false
     characteristic:
       defined_externally: false
@@ -85,7 +85,7 @@ requirements_common:
   # Reactive power capability at NAP (VDE-AR-N 4120 §5.5 / §10.2.2)
   reactive_power_capability:
     applicable: true
-    evaluation_method: rms
+    evaluation_method: loadflow
     evaluation_point: NAP
     normalization: Q_over_P_inst
     project_defined: false
@@ -108,7 +108,7 @@ requirements_common:
   # Voltage deviation caused by reactive power changes (VDE-AR-N 4120 §5.3)
   voltage_deviation_due_to_reactive_power:
     applicable: true
-    evaluation_method: rms
+    evaluation_method: loadflow
     project_defined: false
     max_voltage_deviation_pu:
       absolute: null
@@ -118,7 +118,7 @@ requirements_common:
   # Power quality limits (VDE-AR-N 4120 §5.4)
   power_quality:
     applicable: true
-    evaluation_method: rms
+    evaluation_method: null
     harmonics:
       standard: IEC_61000_4_7
       limits_reference: IEC_TR_61000_3_6
@@ -129,7 +129,7 @@ requirements_common:
   # Simulation model requirements (reduced scope for Type B) (VDE-AR-N 4120 §11)
   simulation_model:
     applicable: false
-    evaluation_method: rms
+    evaluation_method: null
     required: false
     model_type: null
     validation_required: null
@@ -180,7 +180,7 @@ requirements_type_1:
   # Short‑circuit contribution (not required for Type B)
   short_circuit_contribution:
     applicable: false
-    evaluation_method: calculation
+    evaluation_method: short-circuit
     required: null
     behaviour: null
     calculation_standard: null
@@ -272,7 +272,7 @@ requirements_type_2:
   # Short‑circuit current behaviour of converter‑based plants (not required)
   short_circuit_contribution:
     applicable: false
-    evaluation_method: calculation
+    evaluation_method: short-circuit
     required: null
     behaviour: null
     calculation_standard: null
