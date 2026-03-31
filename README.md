@@ -4,13 +4,17 @@ Dev platform for the GCC automation tool.
 **Focus on these modules first:**
 - [ ] PF Model sim setup - define config files in parallel
 - [ ] PF run sims
-- [ ] prepare requirements config files
+- [x] create a basic config loader
+	- [ ] add additional base_config subclass for each config type
+- [x] prepare requirements config files
+	- [ ] Update evaluation_method for finished requirement configs (loadflow, short-circuit, rms, emt)
 - [ ] Compare results with requirements
 - [ ] plot results with requirements
 
 Model preparation can be done after all requirements for the model are known (should result from the previous tasks)
 Main module has low priority and can be implemented when everything else is working as intended.
 
+> See [Documentation](https://github.com/kaikamp/GCC-Automation-Tool/tree/main/docs) for currently available modules, classes and functions.
 
 **Some additional requests**
 Please
