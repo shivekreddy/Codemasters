@@ -45,6 +45,7 @@ backends:
 results:
   base_directory: "./results"
   naming_convention: "project_run_timestamp"
+  run_id: null                      # optional manual override (string)
   overwrite_existing: false
 
 logging:
@@ -54,7 +55,7 @@ logging:
 
 grid_requirements_project_data:
 
-# Specifies or overrides grid code requirements
+# Specifies grid code requirements and selections and binds project-specific values required by the grid code.
 # Will be applied to requirements, if applicable=true and project_defined=true
 # Keys must match the names of grid code requirement blocks EXACTLY.
 

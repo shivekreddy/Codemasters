@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 # Add additional templates to this dictionary:
 config_template = {
-    'grid_code_requirements': "./config/master_templates/grid-code-requirements_template.yaml"
+    'grid_code_requirements': "./config/master_templates/grid-code-requirements_template.yaml",
+    'project_info': "./config/master_templates/project_info_template.yaml"
 }
 
 def register_config(config_type: str):
@@ -251,6 +252,14 @@ class ConfigLoader:
         with open(schema_path, "r", encoding="utf-8") as f:
             schema = yaml.safe_load(f)
         self.check_structure(schema, config, path="", warnings=warnings)
+        match self.config_type:
+            case 'project_info':
+                self.validate_project_info(config, warnings)
+            case 'grid_code_requirements':
+                self.validate_grid_code_requirements(config, warnings)
+            case _: pass
+        
+
 
         if len(warnings)==0:
             logger.info("%s", 'Config structure successfully verified.')
@@ -297,7 +306,47 @@ class ConfigLoader:
         else:
             pass
         
+    def validate_grid_code_requirements(self, config: dict, warnings: list[str]):
+        pass
+
+    def validate_project_info(self, config: dict, warnings: list[str]):
+        # Check if enabled backends are configured properly
+        backends = config.get("backends", [])
+        enabled_backends = [b for b in backends if b.get("enabled")]
+
+        for backend in enabled_backends:
+            bid = backend.get("id", "<unknown>")
+            if not backend.get("simulation_setup_path"):
+                warnings.append(
+                    f"Backend '{bid}' is enabled but simulation_setup_path is null"
+                )
+                logger.warning("%s", warnings[-1])
         
+        # Check if grid operator overlays are configured correctly
+        overlays = config.get("configs", {}).get("overlays", {}).get("grid_operator", [])
+        for ov in overlays:
+            if ov.get("path") is None:
+                warnings.append("Grid operator overlay specified but path is null")
+                logger.warning("%s", warnings[-1])
+       
+        # Check if project specific requirements are present
+        project_data = config.get("grid_requirements_project_data", {})
+        for req_name, req_data in project_data.items():
+            if req_data is None:
+                warnings.append(
+                    f"Project-specific data for '{req_name}' is defined but empty"
+                )
+                logger.warning("%s", warnings[-1])
+                continue
+
+            for key, val in req_data.items():
+                if val is None:
+                    warnings.append(
+                        f"Project-specific field '{req_name}.{key}' is null"
+                    )
+                    logger.warning("%s", warnings[-1])
+
+
 
     
 if __name__ == "__main__":
