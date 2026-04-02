@@ -71,7 +71,7 @@ class Requirement:
 
 
 @register_config("grid_code_requirements")
-@dataclass(frozen=True)
+@dataclass()
 class RequirementsConfig(BaseConfig):
     """Subclass of BaseConfig. 
     Requires plant type as a parameter (type_1 or type_2)
@@ -150,7 +150,7 @@ class RequirementsConfig(BaseConfig):
 # --------------------------------------------------------------------------------------------------------------
 #                                           Project Config
 # -------------------------------------------------------------------------------------------------------------- 
-@dataclass(frozen=True)
+@dataclass()
 class BackendSpec:
     """Backend entry from project_info"""
     id: str
@@ -502,13 +502,10 @@ class ConfigLoader:
 if __name__ == "__main__":
     from logger import setup_logging
     logger = setup_logging(level=logging.INFO, log_file="logs/run.log")
-    req_4120_C:RequirementsConfig = ConfigLoader("./config/germany_vde-ar-n-4120_typeC.yaml", plant_type='type_2').load()
-    print(f"Loaded Config is now of type {type(req_4120_C)}.")
-    print(f"Type of iter_applicable is {type(req_4120_C.iter_applicable())}")
-    for applicable_req in req_4120_C.iter_applicable():
-        print(applicable_req.name)
 
-    for req in req_4120_C.iter_requirements():
-        print(f"Requirement {req.name}: Applicable = {req.applicable}")
+
+    req_4120_C = ConfigLoader("./config/project_test_config.yaml", plant_type='type_2').load()
+    print(f"Loaded Config is now of type {type(req_4120_C)}.")
+
 
 

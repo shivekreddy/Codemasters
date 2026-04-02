@@ -1,224 +1,229 @@
-# config_loader API (YAML Config Loading & Validation)
+# config_loader API
 
-## Overview
-Loads YAML config files, validates their structure against a master template, and instantiates the correct config class based on `config_type`. Includes a concrete config implementation for `grid_code_requirements`.
+Lightweight YAML configuration loading and validation framework with typed config objects.
+Supports multiple config families via `config_type` dispatch.
 
 ---
 
-## Globals / Types
+## Supported config types
+
+- `grid_code_requirements` → `RequirementsConfig`
+- `project_info` → `ProjectConfig`
+
+---
+
+## Registry & Loader
 
 ### `_CONFIG_REGISTRY: Dict[str, Type[BaseConfig]]`
-Registry mapping `config_type` → config class.
+Internal registry that maps `config_type` to the corresponding `BaseConfig` subclass.
 
-### `config_template: Dict[str, str]`
-Maps `config_type` → path to schema/template YAML used for structure validation.
+### `register_config(config_type: str)`
+Decorator used to register a config class for a given `config_type`.
 
-### Type aliases
-- `PlantType = Literal["type_1", "type_2"]`
-- `ScopeName = Literal["common", "type_1", "type_2"]`
-- `EvalMethod = Literal["rms", "emt", "loadflow", "short-circuit"]`
+**Use case**: Extend the loader with new config types without modifying loader logic.
 
----
-
-## Functions
-
-### `register_config(config_type: str) -> Callable`
-**Use case:** Register a `BaseConfig` subclass for a `config_type`.
-
-**Parameters**
-- `config_type (str)`: Identifier used in YAML (`config_type: ...`)
-
-**Returns**
-- Decorator that registers the class in `_CONFIG_REGISTRY`.
-
-**Example**
 ```python
-@register_config("grid_code_requirements")
-class RequirementsConfig(BaseConfig):
+@register_config("project_info")
+class ProjectConfig(BaseConfig):
     ...
 ```
 
 ---
 
-## Classes
+## Base Classes
 
-## `BaseConfig` (dataclass)
-**Use case:** Common superclass for all config types.
-
-**Fields**
-- `config_type: str` — must match YAML top-level `config_type`
-- `raw: Dict[str, Any]` — original parsed YAML dict
-- `extra: Dict[str, Any]` — reserved for unknown fields (optional use in subclasses)
-
-### `BaseConfig.from_dict(d: Dict[str, Any]) -> BaseConfig`
-**Use case:** Default construction from YAML dict (subclasses override).
-
-**Parameters**
-- `d`: parsed YAML as dict
-
-**Returns**
-- `BaseConfig` instance with `config_type` and `raw` assigned
-
----
-
-## `Requirement` (dataclass)
-**Use case:** Normalized container for a single requirement block.
+### `BaseConfig` (dataclass)
+Base class for all configuration objects.
 
 **Fields**
-- `name: str` — requirement key (e.g. `frequency_operation`)
-- `applicable: Optional[bool]` — `true/false/null` from YAML
-- `scope: ScopeName` — `"common" | "type_1" | "type_2"`
-- `evaluation_method: Optional[EvalMethod]` — method tag for planning/verification
-- `data: Dict[str, Any]` — requirement payload excluding `applicable` and `evaluation_method`
+- `config_type: str` – top‑level YAML identifier
+- `raw: Dict[str, Any]` – original parsed YAML
+- `extra: Dict[str, Any]` – unknown / unsupported top‑level keys
 
----
-
-## `RequirementsConfig(BaseConfig)` (dataclass)
-**Registered config_type:** `grid_code_requirements`
-
-**Use case:** Access and iterate grid-code requirement blocks with plant-type scope binding.
-
-### Constructor: `RequirementsConfig(raw: Dict[str, Any], plant_type: PlantType)`
-**Parameters**
-- `raw`: parsed YAML dict
-- `plant_type`: `"type_1"` or `"type_2"`; binds scope resolution for ambiguous requirement names
-
-**Attributes**
-- `plant_type: PlantType`
-- `meta: Dict[str, Any]`
-- `assumptions: Dict[str, Any]`
-- `_sections: Dict[ScopeName, Dict[str, Any]]` — stores `requirements_common/type_1/type_2`
-
-### `RequirementsConfig.from_dict(d: Dict[str, Any], plant_type: PlantType) -> RequirementsConfig`
-**Use case:** Factory for loader dispatch; validates `config_type`.
-
-**Parameters**
-- `d`: parsed YAML dict
-- `plant_type`: `"type_1"` or `"type_2"`
-
-**Raises**
-- `ValueError` if `config_type != "grid_code_requirements"`
-
-### `get_requirement(name: str, scope: ScopeName) -> Requirement`
-**Use case:** Retrieve a specific requirement from a specific scope.
-
-**Parameters**
-- `name`: requirement key
-- `scope`: `"common" | "type_1" | "type_2"`
-
-**Returns**
-- `Requirement`
-
-**Raises**
-- `KeyError` if not found in scope
-- `TypeError` if block is not a mapping/dict
-
-### `__getattr__(name: str) -> Requirement`
-**Use case:** Convenience access without specifying scope.
-
-**Resolution order**
-1. Look in `common`
-2. Look in bound plant scope (`type_1` or `type_2`)
-3. If present only in the other scope → logs warning and raises `AttributeError`
-
-**Examples**
+**Factory**
 ```python
-cfg.frequency_operation              # resolved from common
-cfg.fault_ride_through               # resolved from active plant scope if present
+BaseConfig.from_dict(d: dict) -> BaseConfig
+```
+Subclasses override this to parse their specific structure.
+
+---
+
+## Grid‑Code Requirements
+
+### `Requirement` (dataclass)
+Normalized representation of a single grid‑code requirement block.
+
+**Fields**
+- `name` – requirement identifier
+- `applicable` – applicability flag
+- `scope` – `common | type_1 | type_2`
+- `evaluation_method` – `rms | loadflow | short-circuit | emt`
+- `data` – remaining requirement data
+
+---
+
+### `RequirementsConfig(BaseConfig)`
+Config class for `config_type: grid_code_requirements`.
+Requires a `plant_type` to resolve scope ambiguity.
+
+**Constructor**
+```python
+RequirementsConfig(raw: dict, plant_type: "type_1" | "type_2")
 ```
 
-### `iter_requirements() -> Iterator[Requirement]`
-**Use case:** Planning/execution pass. Iterates:
-- all `requirements_common`
-- all requirements in the active plant scope (`requirements_type_1` or `requirements_type_2`)
+**Key Methods**
 
-### `iter_applicable() -> Iterator[Requirement]`
-**Use case:** Planning/execution subset. Iterates only requirements where:
-- `applicable is True`
+- `get_requirement(name, scope) -> Requirement`
+- `iter_requirements() -> Iterator[Requirement]`
+- `iter_applicable() -> Iterator[Requirement]`
+
+**Attribute access**
+```python
+cfg.frequency_operation
+```
+Resolves in order:
+1. `requirements_common`
+2. active plant scope (`type_1` or `type_2`)
+
+Raises if the requirement exists only in the non‑active scope.
 
 ---
 
-## `ConfigLoader`
-**Use case:** Load YAML, validate against template, instantiate correct config class.
+## Project Configuration
 
-### `ConfigLoader(config_path: str | Path, plant_type: PlantType = "type_2")`
-**Parameters**
-- `config_path`: path to YAML config file
-- `plant_type`: `"type_1"` or `"type_2"` (passed to configs that accept it)
+### `BackendSpec` (dataclass)
+Definition of one backend entry from `project_info`.
 
-**Attributes**
-- `config_path: Path`
-- `plant_type: PlantType`
-- `config_type: Optional[str]`
-- `_config: Optional[BaseConfig]`
+**Fields**
+- `id` – unique backend identifier (e.g. `pf_rms`)
+- `name` – `powerfactory | pscad | psse`
+- `enabled` – whether backend is active
+- `version` – optional software version
+- `executable` – optional external executable path
+- `simulation_setup_path` – path to simulation setup config YAML
+- `element_mapper_path` – optional model mapping config
+- `settings` – backend‑specific key/value settings
+
+---
+
+### `ProjectConfig(BaseConfig)`
+Config class for `config_type: project_info`.
+
+Holds **project‑specific metadata, configuration references, backend definitions,
+result handling settings, logging settings, and project‑defined requirement bindings**.
+
+**Parsed Sections**
+- `meta`
+- `plant`
+- `configs`
+- `backends` (parsed into `BackendSpec` objects)
+- `results`
+- `logging_cfg`
+- `grid_requirements_project_data`
+
+**Convenience Accessors**
+
+```python
+project.project_number
+project.project_name
+project.plant_type
+project.requirements_path
+project.grid_operator_overlays
+project.enabled_backends
+project.get_backend("pf_rms")
+project.results_base_directory
+project.results_run_id
+project.log_level
+project.log_file
+```
+
+No domain logic is implemented here – this class acts as a structured data container.
+
+---
+
+## ConfigLoader
+
+### `ConfigLoader`
+Generic loader and validator for all config types.
+
+**Construction**
+```python
+ConfigLoader(path: str | Path, plant_type="type_2")
+```
+
+**Responsibilities**
+1. YAML loading
+2. Structural validation against template
+3. Semantic validation (config‑type specific)
+4. Dispatch to the correct `BaseConfig` subclass
+
+---
 
 ### `load() -> BaseConfig`
-**Use case:** Main entry point. Loads and returns the instantiated config.
+Loads and validates a YAML file and returns a typed config object.
 
-**Steps**
-- Parse YAML
-- Validate `config_type`
-- Validate structure against template
-- Instantiate correct config class using `_CONFIG_REGISTRY`
-- Pass `plant_type` only if supported by `from_dict` signature (`inspect.signature`)
+Raises:
+- `FileNotFoundError`
+- `ValueError`
+- `yaml.YAMLError`
 
-**Returns**
-- Instance of a `BaseConfig` subclass (e.g. `RequirementsConfig`)
+---
 
-**Raises**
-- `FileNotFoundError` — file missing
-- `ValueError` — empty YAML, missing `config_type`, unsupported `config_type`, unknown registry type
+### Validation Pipeline
 
-### `config -> BaseConfig` (property)
-**Use case:** Lazy accessor. Loads config on first access.
+Validation is split into **two layers**:
 
-### `validate(config: dict) -> list[str]`
-**Use case:** Validate config structure against the configured template for `self.config_type`.
+#### 1) Structural Validation
+Implemented in `check_structure()`:
+- Missing keys → warning
+- Type mismatches → warning
+- Extra keys → info
 
-**Returns**
-- List of warnings (empty if no issues)
+#### 2) Semantic Validation
+Dispatched by `config_type`:
 
-### `check_structure(schema: Any, data: Any, path: str, warnings: list[str]) -> None`
-**Use case:** Recursive structural check used by `validate()`.
+- `validate_project_info()`
+- `validate_grid_code_requirements()` (placeholder)
 
-**Checks**
-- Missing keys (schema key not present in config) → warning
-- Type mismatches (dict/list expected) → warning
-- Extra keys (present in config but not schema) → logged as INFO
+---
+
+### `validate_project_info()` checks
+
+Emits warnings for:
+- Enabled backend without `simulation_setup_path`
+- Grid‑operator overlay entry with null path
+- Project‑defined requirement bindings that are empty or contain null fields
+
+This enables safe manual editing and prepares for later GUI‑based generation.
+
+---
+
+## Extension Guidelines
+
+To add a new config type:
+
+1. Add a template YAML to `config_template`
+2. Implement a `BaseConfig` subclass
+3. Register it using `@register_config`
+4. (Optional) add semantic validation hook
+
+No changes to the loader core are required.
+
+---
+
+## Design Principles
+
+- Structural vs semantic validation are kept separate
+- No domain logic inside config objects
+- Project‑specific choices are *bindings*, not requirement redefinitions
+- Warnings over errors to support iterative setup
 
 ---
 
 ## Typical Usage
 
 ```python
-from logger import setup_logging
-import logging
-
-setup_logging(level=logging.INFO, log_file="logs/run.log")
-
-cfg = ConfigLoader("./config/germany_vde-ar-n-4120_typeC.yaml", plant_type="type_2").load()
-
-print(cfg.frequency_operation.applicable)
-
-for req in cfg.iter_applicable():
-    print(req.name, req.scope, req.evaluation_method)
-```
-
----
-
-## Extension Points
-
-### Add new config types (e.g. `simulation_settings`)
-1. Create a template YAML file and add it to `config_template`.
-2. Create a subclass of `BaseConfig`.
-3. Register it via `@register_config("simulation_settings")`.
-4. Implement `from_dict()`.
-
-```python
-@register_config("simulation_settings")
-@dataclass
-class SimulationSettingsConfig(BaseConfig):
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "SimulationSettingsConfig":
-        return cls(config_type=d["config_type"], raw=d)
+project_cfg = ConfigLoader("./config/project_info.yaml").load()
+requirements_cfg = ConfigLoader(project_cfg.requirements_path,
+                                plant_type=project_cfg.plant_type).load()
 ```
