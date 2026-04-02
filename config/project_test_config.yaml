@@ -1,0 +1,121 @@
+config_type: project_info
+
+meta:
+  project_number: "106xxxxxxx"
+  name: "Test Project (duh)"
+  client: "Example Client Ltd."
+  country: "Germany"
+  description: "Grid compliance study for Project XY"
+
+plant:
+  plant_type: "type_2"           # type_1 | type_2
+  technology: "pv"               # pv | wind | storage | hybrid
+  rated_power_mw: 120.0
+  rated_power_mva: 150.0
+  voltage_level: "high_voltage"  # medium_voltage | high_voltage | extra_high_voltage
+  module_type: "C"               # A | B | C | D (NC RfG / VDE context)
+  reference_point: "NAP"
+
+configs:
+  requirements:
+    path: "./config/germany_vde-ar-n-4120_typeC.yaml"     # check in /config/ for the correct grid code
+  overlays:
+    grid_operator:
+      - path: null                  # path to grid operator specific requirements
+
+backends:
+  - id: "pf_rms"
+    name: "powerfactory"            # powerfactory | pscad | psse
+    enabled: true
+    version: null                   # optional (e.g. "2024 SP2")
+    executable: null                # optional absolute path
+    simulation_setup_path: "./config/simulation_powerfactory.yaml"
+    element_mapper_path: null
+    settings:
+      project_name: "WFN_PF_Project"
+  - id: "pscad_emt"
+    name: "pscad"            # powerfactory | pscad | psse
+    enabled: false
+    version: null                   # optional (e.g. "2024 SP2")
+    executable: null                # optional absolute path
+    simulation_setup_path: "./config/simulation_pscad.yaml"
+    element_mapper_path: null
+    settings: {}
+
+results:
+  base_directory: "./results"
+  naming_convention: "project_run_timestamp"
+  run_id: null                      # optional manual override (string)
+  overwrite_existing: false
+
+logging:
+  level: "INFO"
+  file: "./logs/project.log"
+
+
+grid_requirements_project_data:
+
+# Specifies grid code requirements and selections and binds project-specific values required by the grid code.
+# Will be applied to requirements, if applicable=true and project_defined=true
+# Keys must match the names of grid code requirement blocks EXACTLY.
+
+
+  # -------------------------------------------------------------------------
+  # Reactive power capability (selection only, values defined in grid code)
+  # -------------------------------------------------------------------------
+  reactive_power_capability:
+    selected_variant: variant_1
+    # expected values:
+    #   - variant_1
+    #   - variant_2
+    #   - variant_3
+    #
+    # Mandatory if reactive_power_capability.applicable == true
+    # and multiple variants are defined in the grid code.
+
+  # -------------------------------------------------------------------------
+  # Dynamic voltage support (project-defined parameters)
+  # -------------------------------------------------------------------------
+  dynamic_voltage_support:
+    k_factor: 2               # dimensionless
+    response_time_ms:
+      start: 200
+      full: 500
+    #
+    # Mandatory if dynamic_voltage_support.applicable == true
+    # and parameters are marked as project_defined in grid code.
+
+  # -------------------------------------------------------------------------
+  # Reactive power / voltage characteristic (Q(U))
+  # -------------------------------------------------------------------------
+  reactive_power_voltage_dependency:
+    characteristic_id: null
+    #
+    # Either:
+    #   - reference to an operator-defined characteristic
+    #   - or a project-defined characteristic ID
+    #
+    # Mandatory if reactive_power_voltage_dependency.applicable == true
+    # and characteristic is defined_externally.
+
+  # -------------------------------------------------------------------------
+  # Active power / voltage dependency (P(U))
+  # -------------------------------------------------------------------------
+  active_power_voltage_dependency:
+    curve_id: null
+    #
+    # Mandatory if active_power_voltage_dependency.applicable == true
+    # and curve is project_defined.
+
+  # -------------------------------------------------------------------------
+  # Fault ride-through options (if selectable per project)
+  # -------------------------------------------------------------------------
+  fault_ride_through:
+    additional_faults: null
+    #
+    # Example:
+    #   - ["two_phase", "single_phase_to_ground"]
+    #
+    # Only used if grid operator allows project-specific selection.
+
+
