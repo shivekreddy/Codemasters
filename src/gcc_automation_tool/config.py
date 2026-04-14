@@ -19,6 +19,7 @@ ScopeName = Literal["common", "type_1", "type_2"]
 EvalMethod = Literal["rms", "emt", "loadflow", "short-circuit"] 
 BackendName = Literal["powerfactory", "pscad", "psse"]
 logger = logging.getLogger(__name__)
+logger.info("config loader started")
 
 # Add additional templates to this dictionary:
 config_template = {

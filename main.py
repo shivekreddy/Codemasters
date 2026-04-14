@@ -1,4 +1,6 @@
-from src.gcc_automation_tool import func_lib, requirement, project
+from src.gcc_automation_tool import logger, config, project
+import logging
+
 
 # Example of getting a PF instance
 if False:
@@ -6,15 +8,17 @@ if False:
     func_lib.select_PF_project(pf)
 
 
-# Example of creating a new requirement  --> should be added to a project
-if False:
-    req = requirement.requirement('config/lvrt_template.yaml')
-    print(f'The requirement is of type {req.req_type}.', )
+def main():
+    # Initialize Logger
+    # Load Project class via project config file
 
+    logger.setup_logging(level=logging.INFO, log_file="logs/run.log")
+    log = logging.getLogger(__name__)
+    log.info("Initializing new Project.")
 
-if True:
-    proj = project.project('config/plant_template.yaml')
-    print(proj.pname)
-    for r in proj.requirements:
-        print(r.req_type)
+    proj_config = config.ConfigLoader("./config/project_test_config.yaml", plant_type='type_2').load()
+    proj = project.Project(proj_config)
     
+
+if __name__ == "__main__":
+    main()
