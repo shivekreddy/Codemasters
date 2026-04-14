@@ -1,4 +1,5 @@
-from src.gcc_automation_tool import logger, config, project
+from src.gcc_automation_tool import logger, project
+from src.gcc_automation_tool.config import config_loader
 import logging
 
 
@@ -16,7 +17,7 @@ def main():
     log.info("Initializing new Project.")
 
     # Load Project class via project config file
-    proj_config = config.ConfigLoader("./config/project_test_config.yaml", plant_type='type_2').load()
+    proj_config = config_loader.ConfigLoader("./config/project_test_config.yaml", plant_type='type_2').load()
     proj = project.Project(proj_config)
 
     # iterate through applicable requirements and print name & scope

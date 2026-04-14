@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from src.gcc_automation_tool import config
+from src.gcc_automation_tool.config.config_loader import ConfigLoader
+from src.gcc_automation_tool.config.project_config import ProjectConfig
+from src.gcc_automation_tool.config.backend_config import BackendSpec
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,10 +19,10 @@ class Project:
     - runtime state (results, status, caches)
     """
 
-    def __init__(self, proj_config: config.ProjectConfig) -> None:
+    def __init__(self, proj_config: ProjectConfig) -> None:
         self.config = proj_config
         logger.info(f'Loading Requirements from {self.requirements_path}.')
-        self.requirements = config.ConfigLoader(self.requirements_path).load()
+        self.requirements = ConfigLoader(self.requirements_path).load()
         # Runtime / execution state (not part of config)
         self.simulation_results: Dict[str, Any] = {}
         self.check_results: Dict[str, Any] = {}
@@ -46,10 +48,10 @@ class Project:
     # ------------------------------------------------------------------
 
     @property
-    def enabled_backends(self) -> List[config.BackendSpec]:
+    def enabled_backends(self) -> List[BackendSpec]:
         return self.config.enabled_backends
 
-    def get_backend(self, backend_id: str) -> config.BackendSpec:
+    def get_backend(self, backend_id: str) -> BackendSpec:
         return self.config.get_backend(backend_id)
 
     # ------------------------------------------------------------------
