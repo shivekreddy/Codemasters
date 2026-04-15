@@ -1,3 +1,0 @@
-# Required packages
-- pandas
-- pyyaml
