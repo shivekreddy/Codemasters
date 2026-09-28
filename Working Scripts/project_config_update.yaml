@@ -1,0 +1,144 @@
+# ==============================================================================
+# GCC AUTOMATION TOOL — PROJECT CONFIGURATION FILE
+# ==============================================================================
+# This is the ONLY file you need to edit when setting up a new project.
+# Fill in all sections marked with  <<<  USER INPUT REQUIRED  >>>
+# Everything else is read automatically from the grid code library.
+#
+# Units: Power [MW / Mvar], Voltage [kV or p.u.], Time [s]
+# ==============================================================================
+
+
+# ==============================================================================
+#  <<<  USER INPUT REQUIRED  >>>
+#  SECTION 1 — PROJECT INFO
+# ==============================================================================
+
+project:
+  name:           "NNWZ HVC"     # Project / plant name
+  number:         "106xxxxxxx"              # Internal project number
+  client:         "Example Client Ltd."     # Client name
+  country:        "Netherlands"             # Country
+  author:         "Shivek Reddy"            # Engineer responsible
+  date:           "2026-03-20"              # Date of configuration
+
+
+# ==============================================================================
+#  <<<  USER INPUT REQUIRED  >>>
+#  SECTION 2 — PLANT DATA
+#  Enter the rated electrical parameters for this specific project.
+# ==============================================================================
+
+plant:
+  technology:     "pv"         # pv | wind | storage | hybrid
+  plant_type:     "type_2"     # type_1 (synchronous) | type_2 (converter-based)
+  module_type:    "D"          # NC RfG module type: A | B | C | D
+
+  pmax_mw:        65.05        # Rated active power [MW]
+  poc_voltage_kv: 110.0        # POC busbar nominal voltage [kV]
+  q_factor:       0.33         # Qmax = q_factor * Pmax  |  Qmin = -q_factor * Pmax
+
+
+# ==============================================================================
+#  <<<  USER INPUT REQUIRED  >>>
+#  SECTION 3 — GRID CODE SELECTION
+#  Point to the correct grid code file for this project.
+#  Available files (in the same config folder):
+#    netherlands_NC-RfG-TypeB/C/D.yaml
+#    germany_vde-4110_typeB/C.yaml
+#    germany_vde-ar-n-4120_typeB/C/D.yaml
+#    germany_vde-ar-n-4130_typeC/D.yaml
+#    sweden_EIFS2018_typeB/C/D.yaml
+# ==============================================================================
+
+grid_code:
+  file: 'C:\Projects\GCC Script Development\Codemasters\Working Scripts\netherlands_NC-RfG-TypeD.yaml'   # <<< CHANGE THIS PER PROJECT
+
+
+# ==============================================================================
+#  <<<  USER INPUT REQUIRED  >>>
+#  SECTION 4 — POWERFACTORY MODEL ELEMENTS
+#  Enter the exact loc_name of each element as it appears in PowerFactory.
+#  Run the diagnostic script (element_diagnostic.py) to find these names.
+#
+#  TIP: Run this snippet in PF to list all relevant element names:
+#    for cls in ["ElmTerm","ElmCoup","ElmXnet","ElmStactrl","ElmSecctrl","ElmVac"]:
+#        for o in app.GetCalcRelevantObjects(f"*.{cls}"):
+#            app.PrintPlain(f"{cls}: '{o.loc_name}'")
+# ==============================================================================
+
+elements:
+
+  # --- Busbars and Breakers ---
+  poc_busbar:    "POC"           # ElmTerm  — POC busbar (faults applied here; freq/voltage plots)
+  poc_breaker:   "POC Breaker"   # ElmCoup  — POC breaker (active/reactive power plots)
+  gu_busbar:     "TS1-A 1"       # ElmTerm  — HV side of main transformer (FRT GU Terminal page)
+
+  # --- Generator / Inverter ---
+  inverter:      "TS1-A 1 PV 1"  # ElmGenstat or ElmSym — representative inverter unit
+
+  # --- Grid and Controllers ---
+  external_grid: "Grid"                     # ElmXnet  — external grid (source of fault level data)
+  station_ctrl:  "SC"                       # ElmStactrl — station controller
+  pfc_ctrl:      "PPC"                      # ElmSecctrl — power-frequency controller
+  freq_voltage_source: "TenneT Frequency"   # ElmVac — AC voltage source for frequency step events
+  base_case:     "GCC_BaseCase"
+
+# ==============================================================================
+#  <<<  USER INPUT REQUIRED  >>>
+#  SECTION 5 — RESULTS OUTPUT
+#  Folder where CSV results are saved after simulations run.
+# ==============================================================================
+
+results:
+  output_dir: 'C:\Users\SHIRED\Downloads'   # Use double backslashes on Windows
+
+
+# ==============================================================================
+#  SECTION 6 — SIMULATION SETTINGS
+#  These defaults work for most projects.
+#  Only change if your project requires different timing or integration settings.
+# ==============================================================================
+
+simulation:
+  sim_timeout_s: 300    # seconds per case — increase for long t_stop values
+  # Run control
+  setup_only:           true    # true  = create study cases only, does NOT run sims yet
+                                # false = create cases AND run simulations immediately
+  run_sim_only:         false   # true  = run existing cases only (skip case creation)
+
+  # Timing (FRT)
+  integration_step_s:   0.001   # RMS integration step size [s]
+  t_start_s:            0.0     # Simulation start time [s]
+  t_stop_s:             20.0    # Simulation stop time for FRT cases [s]
+  fault_start_s:        10.0    # Time at which faults are applied [s]
+  a_stable_integration: 1       # 0=per element, 1=all elements, 2=per element+composite
+
+
+# ==============================================================================
+#  SECTION 7 — PROJECT-SPECIFIC GRID CODE SELECTIONS
+#  Only fill in values that are marked project_defined in the grid code file.
+#  Leave as null if not applicable or not yet known.
+# ==============================================================================
+
+grid_requirements_project_data:
+
+  reactive_power_capability:
+    selected_variant: variant_1   # variant_1 | variant_2 | variant_3
+                                  # Only applies if multiple variants defined in grid code
+
+  dynamic_voltage_support:
+    k_factor: 2                   # Reactive current gain factor [pu/pu]
+    response_time_ms:
+      start: 200                  # Time to start reactive current injection [ms]
+      full:  500                  # Time to reach full reactive current [ms]
+
+  reactive_power_voltage_dependency:
+    characteristic_id: null       # ID of Q(U) characteristic (if project-defined)
+
+  active_power_voltage_dependency:
+    curve_id: null                # ID of P(U) curve (if project-defined)
+
+  fault_ride_through:
+    additional_faults: null       # Additional fault types beyond grid code minimum
+                                  # e.g. ["two_phase", "single_phase_to_ground"]

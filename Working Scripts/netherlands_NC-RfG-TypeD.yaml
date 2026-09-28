@@ -1,0 +1,351 @@
+config_type: grid_code_requirements
+
+meta:
+  country: Netherlands
+  tso: Netbeheer Nederland
+  grid_code:
+    name: NC RfG – Dutch Implementation
+    version: "EU 2016/631"
+    legal_basis: EU Regulation 2016/631 (NC RfG) + national implementation
+  voltage_level: transmission
+  module_type: D
+  certification_type: full_compliance
+  reference_point: NAP
+
+assumptions:
+  nominal_frequency_hz: 50
+  voltage_reference_pu: 1.0
+  sign_convention:
+    P_positive: generation
+    Q_positive: inductive
+
+# ============================================================================
+# COMMON REQUIREMENTS (technology‑neutral)
+# ============================================================================
+
+requirements_common:
+
+  # Frequency withstand capability and ROCOF limits (NC RfG Art. 13, 15)
+  frequency_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state:
+      limits_hz:
+        min: 47.5
+        max: 51.5
+      minimum_operation_times: null
+    rocof:
+      max_hz_per_s: 2.0
+    verification: null
+
+  # Continuous voltage operating range (NC RfG Art. 16)
+  voltage_operation:
+    applicable: true
+    evaluation_method: rms
+    steady_state_band_pu:
+      min: 0.90
+      max: 1.10
+    overvoltage_endurance:
+      levels: null
+    undervoltage_endurance:
+      levels: null
+
+  # Active power controllability (NC RfG Art. 15)
+  active_power_control:
+    applicable: true
+    evaluation_method: rms
+    setpoint_changes:
+      start_time_s: 5
+      full_range_time_s: 60
+      tolerance_percent: 2
+    ramp_rates:
+      percent_per_min: 100
+
+  # Voltage‑dependent active power reduction P(U) (NC RfG Art. 16)
+  active_power_voltage_dependency:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    p_reduction_required: true
+    voltage_dependency:
+      voltage_pu_to_p_limits:
+        defined_externally: true
+    recovery_after_voltage_normalization:
+      required: true
+
+  # Steady‑state reactive power as function of voltage Q(U) (NC RfG Art. 15)
+  reactive_power_voltage_dependency:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    characteristic:
+      defined_externally: true
+    override_by_tso: true
+
+  # Static reactive power capability at NAP (NC RfG Art. 15)
+  reactive_power_capability:
+    applicable: null
+    evaluation_method: rms
+    evaluation_point: NAP
+    normalization: Q_over_P_inst
+    project_defined: true
+    variants: null
+
+  # Voltage deviation limits due to reactive power changes (NC RfG Art. 16)
+  voltage_deviation_due_to_reactive_power:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    max_voltage_deviation_pu:
+      absolute: null
+      per_reactive_power_step: null
+      defined_externally: true
+
+  # Harmonic emission and flicker limits (IEC 61000, NC RfG Art. 10)
+  power_quality:
+    applicable: true
+    evaluation_method: rms
+    harmonics:
+      standard: IEC_61000_4_7
+      limits_reference: IEC_TR_61000_3_6
+    flicker:
+      pst_max: 0.8
+      plt_max: 0.4
+
+  # Mandatory RMS simulation model for Type D (Dutch implementation practice)
+  simulation_model:
+    applicable: true
+    evaluation_method: rms
+    required: true
+    model_type:
+      - rms
+    validation_required: true
+    accuracy_requirements:
+      active_power_percent: 5
+      reactive_power_percent: 5
+      voltage_percent: 2
+    simulation_requirements:
+      extended_fault_set: required
+      frequency_steps: mandatory
+      frequency_ramps: mandatory
+
+# ============================================================================
+# TYPE 1 REQUIREMENTS (synchronous machines)
+# ============================================================================
+
+requirements_type_1:
+
+  # Fault ride‑through of synchronous machines (NC RfG Art. 16)
+  fault_ride_through:
+    applicable: true
+    evaluation_method: rms
+    fault_types:
+      - three_phase
+      - two_phase
+      - single_phase_to_ground
+    voltage_time_curve_pu:
+      0.0: 1.0
+      0.25: 0.25
+      1.00: 0.90
+    stay_connected_above_curve: true
+    post_fault_recovery:
+      voltage_pu: 0.90
+      active_power:
+        recovery_time_s: null
+        tolerance_percent: null
+    verification: null
+
+  # Active power recovery after fault (NC RfG Art. 16)
+  active_power_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    recovery_to_prefault_percent: null
+    recovery_time_s:
+      max: null
+    recovery_gradient:
+      percent_per_s: null
+
+  # Voltage recovery after fault (NC RfG Art. 16)
+  voltage_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    recovery_levels: null
+
+  # Short‑circuit current contribution of synchronous units
+  short_circuit_contribution:
+    applicable: true
+    evaluation_method: calculation
+    required: true
+    behaviour: synchronous
+    calculation_standard: IEC_60909
+    time_points_ms: null
+
+# ============================================================================
+# TYPE 2 REQUIREMENTS (converter‑based plants)
+# ============================================================================
+
+requirements_type_2:
+
+  # LFSM‑O, LFSM‑U and FSM frequency response (NC RfG Art. 13–15)
+  active_power_frequency_response:
+    applicable: true
+    evaluation_method: rms
+
+    # --------------------------------------------------------------------------
+    # Shared simulation timing — applies to all frequency simulation types.
+    # t_stop_s must be >= last step time + step_duration_s across all types.
+    # The script reads these values; nothing frequency-related is hardcoded.
+    # --------------------------------------------------------------------------
+    simulation_timing:
+      t_start_s:        0.0    # Simulation start time [s]
+      t_stop_s:       420.0    # Simulation stop time [s] — covers FSM last step at 300 s + 30 s hold + margin
+      step_duration_s:  30.0   # Duration of each frequency step [s]
+
+    lfsm_o:
+      applicable: true
+      activation_threshold_hz: 50.2
+      droop_percent: 5
+      deadband_hz: 0.2
+      response:
+        start_time_s: null
+        full_activation_s: null
+      # Frequency step sequence for LFSM-O Step study case.
+      # Each entry: time_s = event time, freq_hz = F0Hz target value.
+      # Events are created as EvtParam on the ElmVac freq voltage source.
+      # Naming: LFSMO_Step_{freq_hz}Hz_t{time}s
+      simulation_setup:
+        step_events:
+          - { time_s:   0, freq_hz: 50.0 }
+          - { time_s:  30, freq_hz: 50.2 }
+          - { time_s:  60, freq_hz: 50.5 }
+          - { time_s:  90, freq_hz: 51.0 }
+          - { time_s: 120, freq_hz: 51.5 }
+          - { time_s: 150, freq_hz: 51.0 }
+          - { time_s: 180, freq_hz: 50.5 }
+          - { time_s: 210, freq_hz: 50.2 }
+          - { time_s: 240, freq_hz: 50.0 }
+        plot_x_refs_s: [0, 30, 60, 90, 120, 150, 180, 210, 240]
+        plot_zoom_ref_s: 62.0
+
+    lfsm_u:
+      applicable: true
+      activation_threshold_hz: 49.8
+      droop_percent: 5
+      deadband_hz: 0.2
+      response:
+        start_time_s: null
+        full_activation_s: null
+      # Frequency step sequence for LFSM-U Step study case.
+      # Naming: LFSMU_Step_{freq_hz}Hz_t{time}s
+      simulation_setup:
+        step_events:
+          - { time_s:   0, freq_hz: 50.0 }
+          - { time_s:  30, freq_hz: 49.8 }
+          - { time_s:  60, freq_hz: 49.5 }
+          - { time_s:  90, freq_hz: 49.8 }
+          - { time_s: 120, freq_hz: 50.0 }
+        plot_x_refs_s: [0, 30, 60, 90, 120]
+        plot_zoom_ref_s: 62.0
+
+    fsm:
+      applicable: true
+      droop_percent_range:
+        min: 2
+        max: 12
+      deadband_hz_range:
+        min: 0.1
+        max: 0.2
+      full_response_duration_min: null
+      # Frequency step sequence for FSM Step study case.
+      # Naming: FSM_Step_{freq_hz}Hz_t{time}s
+      simulation_setup:
+        step_events:
+          - { time_s:   0, freq_hz: 50.0 }
+          - { time_s:  30, freq_hz: 50.1 }
+          - { time_s:  60, freq_hz: 50.2 }
+          - { time_s:  90, freq_hz: 50.3 }
+          - { time_s: 120, freq_hz: 50.2 }
+          - { time_s: 150, freq_hz: 50.0 }
+          - { time_s: 180, freq_hz: 49.9 }
+          - { time_s: 210, freq_hz: 49.8 }
+          - { time_s: 240, freq_hz: 49.7 }
+          - { time_s: 270, freq_hz: 49.8 }
+          - { time_s: 300, freq_hz: 50.0 }
+        plot_x_refs_s: [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300]
+        plot_zoom_ref_s: 242.0
+
+    verification: null
+
+  # Sustained frequency response duration (NC RfG Art. 15)
+  sustained_frequency_support:
+    applicable: true
+    evaluation_method: rms
+    project_defined: true
+    minimum_duration_s: null
+    discontinuation_conditions:
+      frequency_restored: true
+      tso_release_required: false
+
+  # LVRT/FRT for converter‑based plants (NC RfG Art. 16)
+  fault_ride_through:
+    applicable: true
+    evaluation_method: rms
+    fault_types:
+      - three_phase
+      - two_phase
+      - single_phase_to_ground
+    voltage_time_curve_pu:
+      0.0: 1.0
+      0.14: 0.00
+      0.60: 0.15
+      3.00: 0.70
+      5.00: 0.90
+    stay_connected_above_curve: true
+    post_fault_recovery:
+      voltage_pu: 0.90
+      active_power:
+        recovery_time_s: 2.0
+        tolerance_percent: 10
+    verification: null
+    # Explicit Uret levels and fault clearance durations for study case generation.
+    # Each entry defines one retained voltage level and how long the fault lasts.
+    # clearance_duration_s is added to fault_start_s to get fault_clr_time_s.
+    frt_scenarios:
+      - { uret_pu: 0.05, clearance_duration_s: 0.420 }
+      - { uret_pu: 0.20, clearance_duration_s: 0.900 }
+      - { uret_pu: 0.40, clearance_duration_s: 1.550 }
+      - { uret_pu: 0.60, clearance_duration_s: 2.200 }
+      - { uret_pu: 0.85, clearance_duration_s: 3.000 }
+
+  # Voltage recovery after fault (NC RfG Art. 16)
+  voltage_recovery_after_fault:
+    applicable: null
+    evaluation_method: rms
+    project_defined: true
+    recovery_levels: null
+
+  # Dynamic voltage support via reactive current injection (NC RfG Art. 16)
+  dynamic_voltage_support:
+    applicable: true
+    evaluation_method: rms
+    reactive_current:
+      enabled: true
+      proportional_to_voltage_deviation: true
+      k_factor_range:
+        min: 2
+        max: 6
+      response_time_ms:
+        start: 30
+        full: 60
+    priority: reactive_over_active
+
+  # Short‑circuit current behaviour of converter‑based plants
+  short_circuit_contribution:
+    applicable: true
+    evaluation_method: calculation
+    required: true
+    behaviour: converter_limited
+    calculation_standard: IEC_60909
+    time_points_ms: null
