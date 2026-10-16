@@ -55,29 +55,6 @@
 #                           when the script raises.
 #
 # Author  : GCC Automation Team
-# Version : 1.1  (extracted from gcc_frt_script v3.1 / gcc_freq_script v1.2)
-#
-# CHANGELOG 1.0 -> 1.1
-# --------------------
-#   * NEW: RECORD_VARS_FRT and RECORD_VARS_FREQ — the single authoritative
-#     definitions of the recorded variables for both study families. The
-#     simulation scripts AND the exporter import these; the per-script copies
-#     (and their "keep in sync" comments) are gone.
-#   * NEW: case_csv_filename() — the file-naming convention the evaluation
-#     tool relies on, defined once.
-#   * NEW: export_case_to_csv() — one study case -> one CSV file. Used by
-#     gcc_export_results.py; lives here so both study families share it.
-#   * build_column_map() is now public (was _build_column_map; the old name
-#     remains as an alias).
-#   * REMOVED: export_results_to_csv() (the combined single-file export).
-#     The per-case CSVs + export_manifest.json written by
-#     gcc_export_results.py are the one and only results format — the
-#     evaluation tool's contract. Simulation scripts v4.2 / v2.1 no longer
-#     export CSVs at all; run gcc_export_results.py after the batch.
-#     If an OLDER simulation script (v4.1 / v2.0) is run against this
-#     module it will fail at the export step with an AttributeError —
-#     update the script rather than restoring the function.
-# ==============================================================================
 
 import os
 import csv

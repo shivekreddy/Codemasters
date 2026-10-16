@@ -40,58 +40,6 @@
 #
 # Author  : GCC Automation Team
 # Version : 2.1
-#
-# CHANGELOG v2.0 -> v2.1
-# ----------------------
-#   * RECORD_VARS_FREQ now imported from gcc_common — single authoritative
-#     definition shared with the exporter.
-#   * REMOVED: in-script CSV export. Results export is now exclusively the
-#     job of gcc_export_results.py with STUDY = "FREQ" (one CSV per case +
-#     export_manifest.json). Requires gcc_common v1.1+.
-#   * CONFIG_FILE may now point at a FOLDER — the script looks for
-#     project_config.yaml / project_config_update.yaml inside it.
-#
-# CHANGELOG v1.2 -> v2.0
-# ----------------------
-#   * Shared plumbing moved to gcc_common.py (single source for both scripts)
-#   * NEW: all plotted variables are now explicitly RECORDED via
-#     RECORD_VARS_FREQ. v1.2 recorded only P/Q — m:fehz and m:u1 were plotted
-#     but never added to the result file, so frequency/voltage curves came up
-#     empty unless the base case happened to record them already. This also
-#     makes the CSV export possible.
-#   * NEW: CSV export (FindColumn-based, via gcc_common) — the input for the
-#     compliance evaluation tool
-#   * NEW: JSON run manifest with per-case type / variant / step sequence /
-#     timing / setpoints / status — the evaluator reads frequency sequences
-#     from here, never from case names
-#   * Convergence handling brought to FRT-script parity: three failure layers
-#     (ComInc error, ComSim error, b:warnA fatal divergence) + iopt_adapt=1
-#     with a dtgrd_max cap as hang protection; b:warnB/C reported as warnings
-#   * Per-case try/except — one bad case can no longer kill the whole run;
-#     failures recorded as {case_name: reason} for the OEM report
-#   * run_sim_only: no longer creates a fresh (empty) run folder every time;
-#     finds the latest FREQ_* folder instead (parses old DD-MM-YYYY names
-#     too) and scopes case lookup to that folder — never recursively from
-#     the study-case root, so a same-named case from an older run can never
-#     be picked up
-#   * run_sim_only: pre-fault setpoints are RE-APPLIED per case (v1.2 relied
-#     on op scenarios that were never saved)
-#   * Op scenario is activated BEFORE setpoints are written, then SAVED —
-#     cases are self-contained when opened manually
-#   * Preflight: config, elements, base case, and output dir all verified
-#     BEFORE any run folder is created (no more empty FREQ_* folders left
-#     behind on failure)
-#   * Plot x-ranges derived from the YAML step sequence:
-#     x_max = min(t_stop, last_step_time + step_duration). v1.2 hardcoded
-#     0-270 s, which clipped the FSM sequence (last step at 300 s).
-#     Ramp variants use the full [t_start, t_stop] window since their events
-#     live in an external file.
-#   * Step-event cleanup is scoped to this script's own naming convention
-#     (*_Step_*.EvtParam) — deliberate EvtParam events in the base case
-#     survive re-runs
-#   * UI is guaranteed unfrozen on any error (gcc_common.pf_session)
-#   * Run folders use ISO timestamps (FREQ_YYYY-MM-DD_HH-MM-SS)
-# ==============================================================================
 
 import sys
 import os
