@@ -261,7 +261,7 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s,
     page_poc = desktop.GetPage("POC", 1, "GrpPage")
     page_poc.SetResults(elmRes)
 
-    _p_src = POC_BRK if POC_BRK else POC_BB
+    _p_src = POC_BRK
 
     poc_graphs = [
         gcc.make_graph(page_poc, "Curve plot",
@@ -535,7 +535,7 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
                 "t_start_s", "a_stable_integration"):
         if key not in sim_cfg:
             raise RuntimeError(f"Missing 'simulation.{key}' in project config.")
-    for key in ("poc_busbar", "gu_busbar", "external_grid",
+    for key in ("poc_busbar", "poc_breaker", "gu_busbar", "external_grid",
                 "station_ctrl", "pfc_ctrl", "inverter"):
         if key not in elem_cfg:
             raise RuntimeError(f"Missing 'elements.{key}' in project config.")
@@ -551,9 +551,28 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
     Ext_grid = gcc.find_element(app, "ElmXnet",    elem_cfg["external_grid"])
     SC       = gcc.find_element(app, "ElmStactrl", elem_cfg["station_ctrl"])
     PFC      = gcc.find_element(app, "ElmSecctrl", elem_cfg["pfc_ctrl"])
-    POC_BRK  = (gcc.find_element(app, "ElmCoup", elem_cfg["poc_breaker"],
-                                 required=False)
-                if "poc_breaker" in elem_cfg else None)
+    POC_BRK  = gcc.find_element(app, "ElmCoup", elem_cfg["poc_breaker"],
+                                required=False)
+    if POC_BRK is None:
+        # POC P/Q and currents are read from the breaker, so this is a hard
+        # error — but list the breakers that DO exist so the correct
+        # loc_name can be copied straight into the config.
+        names = sorted(o.loc_name for o in
+                       (app.GetCalcRelevantObjects("*.ElmCoup") or []))
+        app.PrintError(
+            f"  POC breaker '{elem_cfg['poc_breaker']}' (ElmCoup) not found. "
+            f"{len(names)} calculation-relevant ElmCoup object(s) in the "
+            f"active grids:"
+        )
+        for n in names[:50]:
+            app.PrintPlain(f"      '{n}'")
+        if len(names) > 50:
+            app.PrintPlain(f"      ... and {len(names) - 50} more")
+        raise RuntimeError(
+            f"Element not found — class: ElmCoup, loc_name: "
+            f"'{elem_cfg['poc_breaker']}'. Set 'elements.poc_breaker' to one "
+            f"of the names listed above."
+        )
     # Inverter may be ElmGenstat (PV/storage) or ElmSym (wind)
     Inverter = (gcc.find_element(app, "ElmGenstat", elem_cfg["inverter"],
                                  required=False)
@@ -561,11 +580,7 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
 
     app.PrintPlain(f"  [ok] POC busbar   : {POC_BB.loc_name}")
     app.PrintPlain(f"  [ok] GU busbar    : {GU_BB.loc_name}")
-    if POC_BRK:
-        app.PrintPlain(f"  [ok] POC breaker  : {POC_BRK.loc_name}")
-    else:
-        app.PrintWarn("  [--] POC breaker  : not configured — "
-                      "POC power/current will be read from the busbar")
+    app.PrintPlain(f"  [ok] POC breaker  : {POC_BRK.loc_name}")
     app.PrintPlain(f"  [ok] Ext grid     : {Ext_grid.loc_name}")
     app.PrintPlain(f"  [ok] Station ctrl : {SC.loc_name}")
     app.PrintPlain(f"  [ok] PFC ctrl     : {PFC.loc_name}")
