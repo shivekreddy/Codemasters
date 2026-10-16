@@ -56,11 +56,11 @@ import powerfactory
 
 # ------------------------------------------------------------------------------
 # PATH TO PROJECT CONFIG — same file used by the FRT script.
-#   Set an absolute path here, OR leave as None to use the project_config.yaml
-#   located in the same folder as this script.
+#   Set an absolute path (file or folder) here, OR leave as None to use the
+#   project_config.yaml / project_config_update.yaml located in the same
+#   folder as this script.
 # ------------------------------------------------------------------------------
-CONFIG_FILE = r"C:\Users\SHIRED\OneDrive - DNV\Projects\GCC Script Development\Codemasters\Working Scripts\project_config_update.yaml"
-# CONFIG_FILE = None
+CONFIG_FILE = None
 
 # Name of the base study case to copy when 'elements.base_case' is not set.
 BASE_CASE_NAME = "GCC_BaseCase"
@@ -464,9 +464,8 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
 # ==============================================================================
 
 def _resolve_config_path():
-    """CONFIG_FILE (file OR folder), else project_config.yaml next to script."""
-    path = CONFIG_FILE or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "project_config.yaml")
+    """CONFIG_FILE (file OR folder), else the config next to this script."""
+    path = CONFIG_FILE or os.path.dirname(os.path.abspath(__file__))
     if os.path.isdir(path):     # folder given -> look for a config inside it
         for name in ("project_config.yaml", "project_config_update.yaml"):
             candidate = os.path.join(path, name)

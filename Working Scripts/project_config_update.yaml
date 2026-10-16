@@ -52,7 +52,7 @@ plant:
 # ==============================================================================
 
 grid_code:
-  file: 'C:\Users\SHIRED\OneDrive - DNV\Projects\GCC Script Development\Codemasters\Working Scripts\netherlands_NC-RfG-TypeD.yaml'   # <<< CHANGE THIS PER PROJECT
+  file: 'netherlands_NC-RfG-TypeD.yaml'   # <<< CHANGE THIS PER PROJECT (relative = next to this config file)
 
 
 # ==============================================================================
