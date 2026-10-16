@@ -33,6 +33,10 @@ import time as clock
 # Make gcc_common.py importable (it sits next to this script)
 # ------------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# PowerFactory keeps imported modules in memory for the whole session:
+# drop any cached copy so gcc_common.py is always loaded fresh from THIS
+# folder (not an older version, or a copy from another folder).
+sys.modules.pop("gcc_common", None)
 import gcc_common as gcc
 
 import powerfactory
