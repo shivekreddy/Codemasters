@@ -851,12 +851,12 @@ def _run(app):
 
     # --------------------------------------------------------------------------
     # 7.10  Results export
-    #        Handled EXCLUSIVELY by gcc_export_results.py with STUDY="FREQ"
+    #        Handled EXCLUSIVELY by gcc_export_freq.py
     #        (one CSV per case + export_manifest.json).
     # --------------------------------------------------------------------------
     if not setup_only:
         app.PrintPlain(
-            "\nResults export: run gcc_export_results.py (STUDY='FREQ') to "
+            "\nResults export: run gcc_export_freq.py to "
             "write one CSV per case."
         )
 
@@ -923,7 +923,7 @@ def _run(app):
 
     app.PrintPlain(f"\n  Manifest : {manifest_path}")
     if not setup_only:
-        app.PrintPlain("  Export   : run gcc_export_results.py (STUDY='FREQ')")
+        app.PrintPlain("  Export   : run gcc_export_freq.py")
     app.PrintPlain("=" * 68)
 
 

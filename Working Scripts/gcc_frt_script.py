@@ -1137,12 +1137,12 @@ def _run(app):
 
     # --------------------------------------------------------------------------
     # 7.11  Results export
-    #        Handled EXCLUSIVELY by gcc_export_results.py (one CSV per case
+    #        Handled EXCLUSIVELY by gcc_export_frt.py (one CSV per case
     #        + export_manifest.json — the evaluation tool's contract).
     # --------------------------------------------------------------------------
     if not setup_only:
         app.PrintPlain(
-            "\nResults export: run gcc_export_results.py (STUDY='FRT') to "
+            "\nResults export: run gcc_export_frt.py to "
             "write one CSV per case."
         )
 
@@ -1231,7 +1231,7 @@ def _run(app):
 
     app.PrintPlain(f"\n  Manifest : {manifest_path}")
     if not setup_only:
-        app.PrintPlain("  Export   : run gcc_export_results.py (STUDY='FRT')")
+        app.PrintPlain("  Export   : run gcc_export_frt.py")
     app.PrintPlain("=" * 68)
 
 

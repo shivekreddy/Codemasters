@@ -1,13 +1,14 @@
 # ==============================================================================
 # GCC FRT Evaluation Script
 # ==============================================================================
-# Evaluates the FRT results exported by gcc_export_results.py (STUDY = "FRT").
+# Evaluates the FRT results exported by gcc_export_frt.py.
 # Runs OUTSIDE PowerFactory, in any Python 3 with PyYAML (matplotlib optional,
 # for plots). Re-run it as often as you like; it only reads the CSVs.
 #
 # Inputs:
-#   * the export folder: {results.output_dir}\FRT_<timestamp>\
+#   * the export folder: <RAW_DATA_ROOT>\FRT Raw Data\ (set in gcc_common.py)
 #       export_manifest.json + one CSV per study case
+#     Cases exported as zeros (no results) are listed but not evaluated.
 #   * the grid code YAML and project config (same files as the simulation
 #     scripts), for the limits
 #
@@ -32,7 +33,7 @@
 #   plots\<case>.png       one figure per case (only if matplotlib exists)
 #
 # Usage:
-#   python gcc_evaluate_frt.py                -> latest FRT_* export folder
+#   python gcc_evaluate_frt.py                -> <RAW_DATA_ROOT>\FRT Raw Data
 #   python gcc_evaluate_frt.py <export folder>
 # ==============================================================================
 
@@ -44,6 +45,9 @@ import math
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gcc_common as gcc    # for RAW_DATA_ROOT (no PowerFactory needed)
+
 
 # ------------------------------------------------------------------------------
 # SETTINGS
@@ -51,7 +55,7 @@ import yaml
 # Project config; None -> project_config(_update).yaml next to this script
 CONFIG_FILE = None
 
-# Export folder to evaluate; None -> latest FRT_* folder in results.output_dir
+# Export folder to evaluate; None -> <RAW_DATA_ROOT>\FRT Raw Data (gcc_common)
 # (a folder given on the command line overrides this)
 EXPORT_DIR = None
 
@@ -96,21 +100,18 @@ def resolve_config_path():
     return path
 
 
-def find_export_dir(out_dir):
-    """Command-line folder, else EXPORT_DIR, else the latest FRT_* export."""
+def find_export_dir():
+    """Command-line folder, else EXPORT_DIR, else <RAW_DATA_ROOT>\\FRT Raw Data."""
     if len(sys.argv) > 1:
-        return sys.argv[1]
-    if EXPORT_DIR:
-        return EXPORT_DIR
-    runs = sorted(
-        d for d in os.listdir(out_dir)
-        if d.startswith("FRT_")
-        and os.path.isfile(os.path.join(out_dir, d, "export_manifest.json"))
-    )
-    if not runs:
-        raise RuntimeError(f"No exported FRT_* folder found in {out_dir}. "
-                           "Run gcc_export_results.py (STUDY='FRT') first.")
-    return os.path.join(out_dir, runs[-1])   # ISO timestamps sort by date
+        path = sys.argv[1]
+    elif EXPORT_DIR:
+        path = EXPORT_DIR
+    else:
+        path = gcc.raw_data_dir("FRT", create=False)
+    if not os.path.isfile(os.path.join(path, "export_manifest.json")):
+        raise RuntimeError(f"No export_manifest.json in {path}. "
+                           "Run gcc_export_frt.py in PowerFactory first.")
+    return path
 
 
 def load_case_csv(path):
@@ -269,6 +270,9 @@ def evaluate_case(case, cols, limits, in_ka):
 
     checks = [r["completed"], r["connected"], r["p_recovery"], r["iq_injection"]]
     r["overall"] = "FAIL" if "FAIL" in checks else "PASS"
+    if case.get("missing_columns"):
+        notes.append("not recorded, exported as 0: "
+                     + ", ".join(case["missing_columns"]))
     r["notes"] = "; ".join(notes)
 
     series = {"t": t, "u1": u1, "u2": cols.get("POC Neg-Seq Voltage [pu]"),
@@ -333,7 +337,7 @@ def main():
         gc_path = os.path.join(os.path.dirname(config_path), gc_path)
     gc = load_yaml(gc_path)
 
-    export_dir = find_export_dir(cfg["results"]["output_dir"])
+    export_dir = find_export_dir()
     with open(os.path.join(export_dir, "export_manifest.json"),
               "r", encoding="utf-8") as f:
         manifest = json.load(f)

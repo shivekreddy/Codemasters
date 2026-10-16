@@ -26,7 +26,8 @@
 #   4.  Run-folder helpers               make_run_tag, find_latest_run_folder
 #   5.  Load flow configuration          configure_loadflow
 #   6.  Plotting helpers                 set_xrange, add_x_ref_line, make_graph
-#   7.  CSV export (FindColumn-based)    export_results_to_csv
+#   0.  Raw data export location         RAW_DATA_ROOT, raw_data_dir
+#   7.  CSV export (FindColumn-based)    export_case_to_csv, export_raw_results
 #   8.  Run manifest                     write_run_manifest
 #   9.  UI safety wrapper                pf_session
 #
@@ -61,6 +62,38 @@ import csv
 import json
 from datetime import datetime
 from contextlib import contextmanager
+
+
+# ==============================================================================
+# 0.  RAW DATA EXPORT LOCATION   <<< SET THIS ONCE
+# ==============================================================================
+# Create this folder yourself first; the export scripts will not create it.
+# Inside it they create (and refill on every export):
+#     <RAW_DATA_ROOT>\FRT Raw Data\     <- gcc_export_frt.py
+#     <RAW_DATA_ROOT>\Freq Raw Data\    <- gcc_export_freq.py
+RAW_DATA_ROOT = r"C:\Users\SHIRED\Documents\xyz"
+
+RAW_DATA_FOLDERS = {
+    "FRT":  "FRT Raw Data",
+    "FREQ": "Freq Raw Data",
+}
+
+
+def raw_data_dir(study, create=True):
+    """
+    Path of the raw data folder for 'FRT' or 'FREQ' inside RAW_DATA_ROOT.
+    RAW_DATA_ROOT must already exist (it is created by hand, on purpose);
+    the study subfolder is created when create=True.
+    """
+    if not os.path.isdir(RAW_DATA_ROOT):
+        raise RuntimeError(
+            f"Raw data folder not found:\n  {RAW_DATA_ROOT}\n"
+            "Create it first, or set RAW_DATA_ROOT at the top of gcc_common.py."
+        )
+    path = os.path.join(RAW_DATA_ROOT, RAW_DATA_FOLDERS[study])
+    if create:
+        os.makedirs(path, exist_ok=True)
+    return path
 
 
 # ==============================================================================
@@ -465,7 +498,7 @@ def build_column_map(elmRes, elm_objects, record_vars, app, sc_name):
         if col is None or col < 0:
             app.PrintWarn(
                 f"  CSV export [{sc_name}]: '{variable}' for '{elm_key}' "
-                f"not in result file — column left blank."
+                f"not in result file, column filled with 0."
             )
             col_map[(elm_key, variable)] = None
             continue
@@ -477,7 +510,7 @@ def build_column_map(elmRes, elm_objects, record_vars, app, sc_name):
                 app.PrintWarn(
                     f"  CSV export [{sc_name}]: column self-check FAILED — "
                     f"FindColumn returned col {col} holding '{actual_var}', "
-                    f"expected '{variable}'. Column left blank."
+                    f"expected '{variable}'. Column filled with 0."
                 )
                 col_map[(elm_key, variable)] = None
                 continue
@@ -494,37 +527,58 @@ _build_column_map = build_column_map
 
 def export_case_to_csv(app, study_case, elm_objects, record_vars, csv_path):
     """
-    Export ONE study case's result file to ONE CSV file.
+    Export ONE study case's result file to ONE CSV file. Always writes a file.
 
     CSV format:  time_s, <one column per record_vars entry>
     One row per time step. NOTE: the time base is NON-UNIFORM under
-    iopt_adapt=1 — anything consuming the CSV must interpolate on time_s,
+    iopt_adapt=1; anything consuming the CSV must interpolate on time_s,
     never index by row.
 
-    Column indices are resolved per case via FindColumn() with the runtime
-    self-check — never positional. Rows are stream-written; ElmRes.Release()
-    is always called afterwards.
+    Never fails for missing data:
+      * no result file / no rows (case not simulated) -> one row of zeros at t=0
+      * variable not recorded, or element not found  -> that column is all 0
+    Column indices are resolved per case via FindColumn() with a self-check,
+    never positional. ElmRes.Release() is always called afterwards.
 
-    Returns (n_rows, last_t) — last_t is None if no data was read.
+    Returns (n_rows, last_t, missing_labels):
+      n_rows         result rows read (0 if no data)
+      last_t         last time point, None if no data
+      missing_labels column labels that were filled with 0
     """
+    header = ["time_s"] + [lbl for _, _, lbl in record_vars]
+    all_labels = [lbl for _, _, lbl in record_vars]
+
+    def write_zero_file():
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerow([0.0] + [0] * len(record_vars))
+        return 0, None, all_labels
+
     study_case.Activate()
     comInc = app.GetFromStudyCase("ComInc")
-    elmRes = comInc.p_resvar
+    elmRes = getattr(comInc, "p_resvar", None) if comInc else None
+    if elmRes is None:
+        app.PrintWarn(f"  [{study_case.loc_name}] no result object, "
+                      f"exported as zeros.")
+        return write_zero_file()
 
-    elmRes.Load()
     try:
+        elmRes.Load()
         n_rows = elmRes.GetNumberOfRows()
-        if n_rows == 0:
-            return 0, None
+        if not n_rows or n_rows <= 0:
+            return write_zero_file()
 
         col_map = build_column_map(
             elmRes, elm_objects, record_vars, app, study_case.loc_name
         )
+        missing = [lbl for elm_key, variable, lbl in record_vars
+                   if col_map[(elm_key, variable)] is None]
 
         last_t = None
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["time_s"] + [lbl for _, _, lbl in record_vars])
+            writer.writerow(header)
 
             for i in range(n_rows):
                 err_t, t = elmRes.GetValue(i)     # col omitted -> time column
@@ -536,19 +590,179 @@ def export_case_to_csv(app, study_case, elm_objects, record_vars, csv_path):
                 for elm_key, variable, _lbl in record_vars:
                     col = col_map[(elm_key, variable)]
                     if col is None:
-                        row.append("")
+                        row.append(0)
                         continue
                     err_v, val = elmRes.GetValue(i, col)
-                    row.append("" if err_v else repr(round(val, 10)))
+                    row.append(0 if err_v else repr(round(val, 10)))
                 writer.writerow(row)
 
-        return n_rows, last_t
+        if last_t is None:
+            return write_zero_file()
+        return n_rows, last_t, missing
+
+    except Exception as e:
+        app.PrintWarn(f"  [{study_case.loc_name}] could not read results "
+                      f"({e}), exported as zeros.")
+        return write_zero_file()
 
     finally:
         try:
             elmRes.Release()
         except Exception:
             pass
+
+
+# Completeness tolerance basis per study: must match DTGRD_MAX_S in the
+# simulation scripts (last result time must reach t_stop - 2 x dtgrd_max).
+_EXPORT_DTGRD_MAX_S = {"FRT": 0.01, "FREQ": 0.1}
+
+
+def resolve_config_path(script_file, config_file=None):
+    """config_file (file OR folder), else the config next to script_file."""
+    path = config_file or os.path.dirname(os.path.abspath(script_file))
+    if os.path.isdir(path):
+        for name in ("project_config.yaml", "project_config_update.yaml"):
+            candidate = os.path.join(path, name)
+            if os.path.isfile(candidate):
+                return candidate
+    return path
+
+
+def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
+    """
+    Export one FRT or FREQ run to <RAW_DATA_ROOT>\\<FRT|Freq> Raw Data\\:
+    one CSV per study case (named after the case) + export_manifest.json.
+
+    run_tag None -> the latest FRT_* / FREQ_* run folder in Study Cases.
+    Works without results: cases without data are exported as zeros and
+    marked 'no_result_data' in the manifest (the evaluation skips them).
+    """
+    record_vars = RECORD_VARS_FRT if study == "FRT" else RECORD_VARS_FREQ
+    tolerance   = 2.0 * _EXPORT_DTGRD_MAX_S[study]
+
+    app.PrintPlain("=" * 68)
+    app.PrintPlain(f"  GCC Raw Data Export ({study}) starting")
+    app.PrintPlain("=" * 68)
+
+    # --- Destination (checked first: a wrong path fails before any work) -----
+    export_dir = raw_data_dir(study)
+    app.PrintPlain(f"\nExport to : {export_dir}")
+
+    # --- Config and elements (a missing element only zeroes its columns) -----
+    config_path = resolve_config_path(script_file, config_file)
+    app.PrintPlain(f"Config    : {config_path}")
+    cfg      = load_yaml(config_path)
+    elem_cfg = cfg.get("elements", {})
+
+    classes = {"poc_busbar": ["ElmTerm"], "poc_breaker": ["ElmCoup"],
+               "gu_busbar": ["ElmTerm"], "inverter": ["ElmGenstat", "ElmSym"]}
+    elm_objects = {}
+    app.PrintPlain("\nElements:")
+    for elm_key in dict.fromkeys(k for k, _, _ in record_vars):
+        name = elem_cfg.get(elm_key)
+        obj = None
+        if name:
+            for cls in classes.get(elm_key, []):
+                obj = find_element(app, cls, name, required=False)
+                if obj is not None:
+                    break
+        elm_objects[elm_key] = obj
+        if obj is not None:
+            app.PrintPlain(f"  [ok] {elm_key:12s}: {obj.loc_name}")
+        else:
+            app.PrintWarn(f"  [--] {elm_key:12s}: '{name}' not found, its "
+                          f"columns will be 0")
+
+    # --- Run folder -------------------------------------------------------
+    sc_root = get_folder(app, "study")
+    if run_tag:
+        found = sc_root.GetContents(f"{run_tag}.IntFolder")
+        sc_folder = found[0] if found else None
+    else:
+        sc_folder = find_latest_run_folder(sc_root, study)
+    if sc_folder is None:
+        raise RuntimeError(
+            f"No {study} run folder found in Study Cases"
+            + (f" named '{run_tag}'." if run_tag else ".")
+            + f" Run the {study} simulation script first."
+        )
+    app.PrintPlain(f"\nRun folder: '{sc_folder.loc_name}'")
+
+    # --- Case metadata from the run manifest, if the simulation wrote one ----
+    meta, run_manifest = {}, {}
+    out_dir = (cfg.get("results") or {}).get("output_dir")
+    if out_dir:
+        mpath = os.path.join(out_dir, f"{sc_folder.loc_name}_manifest.json")
+        if os.path.isfile(mpath):
+            with open(mpath, "r", encoding="utf-8") as f:
+                run_manifest = json.load(f)
+            meta = {c["name"]: c for c in run_manifest.get("cases", [])}
+    if not meta:
+        app.PrintWarn("Run manifest not found: case metadata (fault times, "
+                      "setpoints) will be missing from the export manifest.")
+
+    # --- Export every study case in the run folder ---------------------------
+    cases = sorted(sc_folder.GetContents("*.IntCase"), key=lambda c: c.loc_name)
+    if not cases:
+        raise RuntimeError(f"Run folder '{sc_folder.loc_name}' has no study cases.")
+    app.PrintPlain(f"Cases     : {len(cases)}\n")
+
+    entries, n_data, n_zero = [], 0, 0
+    for case in cases:
+        name  = case.loc_name
+        fname = case_csv_filename(name)
+        entry = dict(meta.get(name, {"name": name}))
+        n_rows, last_t, missing = export_case_to_csv(
+            app, case, elm_objects, record_vars, os.path.join(export_dir, fname))
+
+        entry["csv_file"]        = fname
+        entry["n_rows"]          = n_rows
+        entry["missing_columns"] = missing
+        if last_t is None:
+            entry["export_status"] = "no_result_data"
+            n_zero += 1
+            app.PrintWarn(f"  [{name}] -> {fname}  NO RESULTS, written as zeros")
+            entries.append(entry)
+            continue
+
+        entry["export_status"] = "ok"
+        entry["t_end_s"]       = round(last_t, 6)
+        if entry.get("t_stop") is not None:
+            entry["complete"] = last_t >= float(entry["t_stop"]) - tolerance
+        n_data += 1
+        app.PrintPlain(f"  [{name}] -> {fname}  ({n_rows} rows, "
+                       f"t_end={last_t:.3f}s"
+                       + (f", {len(missing)} column(s) zero" if missing else "")
+                       + ")")
+        entries.append(entry)
+
+    manifest = {
+        "study":          study,
+        "run_tag":        sc_folder.loc_name,
+        "exported":       datetime.now().isoformat(timespec="seconds"),
+        "columns":        [{"element": e, "variable": v, "column": lbl}
+                           for e, v, lbl in record_vars],
+        "time_base_note": "NON-UNIFORM time base: interpolate on time_s.",
+        "project":        run_manifest.get("project"),
+        "plant":          run_manifest.get("plant"),
+        "grid_code_file": run_manifest.get("grid_code_file"),
+        "cases":          entries,
+    }
+    manifest_path = os.path.join(export_dir, "export_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, default=str)
+
+    app.PrintPlain("")
+    app.PrintPlain("=" * 68)
+    app.PrintPlain(f"  {study} RAW DATA EXPORT SUMMARY")
+    app.PrintPlain("=" * 68)
+    app.PrintPlain(f"  Run      : {sc_folder.loc_name}")
+    app.PrintPlain(f"  Cases    : {len(cases)} exported, {n_data} with results, "
+                   f"{n_zero} as zeros (no results)")
+    app.PrintPlain(f"  Folder   : {export_dir}")
+    app.PrintPlain(f"  Manifest : {manifest_path}")
+    app.PrintPlain("=" * 68)
+    return export_dir
 
 
 # ==============================================================================
