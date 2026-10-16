@@ -234,6 +234,35 @@ def use_external_grid(app, ext_grid, poc_bb):
     return switched_off
 
 
+def use_voltage_source(app, ext_grid, poc_bb, source_vac):
+    """
+    Make source_vac (ElmVac) the source at the POC, in the ACTIVE scenario.
+    Used by the frequency studies: the external grid has no frequency
+    setpoint that can be stepped in RMS, the ElmVac does (F0Hz).
+      * source_vac in service, and the switch in its cubicle closed
+      * external grid out of service
+      * every OTHER ElmVac connected to the POC busbar out of service
+    Returns the names of the other ElmVac objects taken out of service.
+    """
+    source_vac.outserv = 0
+    cub = getattr(source_vac, "bus1", None)
+    if cub is not None:
+        for sw in cub.GetContents("*.StaSwitch"):
+            sw.on_off = 1
+
+    ext_grid.outserv = 1
+
+    switched_off = []
+    for vac in app.GetCalcRelevantObjects("*.ElmVac") or []:
+        if vac == source_vac:
+            continue
+        vac_cub = getattr(vac, "bus1", None)
+        if vac_cub is not None and vac_cub.GetParent() == poc_bb:
+            vac.outserv = 1
+            switched_off.append(vac.loc_name)
+    return switched_off
+
+
 def find_study_case_recursive(folder, name):
     """Recursively search for a study case by loc_name."""
     matches = folder.GetContents(f"{name}.IntCase")

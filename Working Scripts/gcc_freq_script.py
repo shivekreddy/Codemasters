@@ -422,6 +422,7 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
     # --- 6.3 Base case (only needed when creating cases) -----------------------
     sc_folder_root = gcc.get_folder(app, "study")
     base_case = None
+    base_scenario = None
     if not run_sim_only:
         base_case_name = elem_cfg.get("base_case", BASE_CASE_NAME)
         base_matches   = sc_folder_root.GetContents(f"{base_case_name}.IntCase")
@@ -432,6 +433,18 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
             )
         base_case = base_matches[0]
         app.PrintPlain(f"  [ok] Base case        : {base_case.loc_name}")
+
+        # The base case's operation scenario holds its operational data.
+        # Each case's scenario is created as a COPY of it, so that data is
+        # kept; only the POC source is then switched for the frequency study.
+        base_case.Activate()
+        base_scenario = app.GetActiveScenario()
+        base_case.Deactivate()
+        if base_scenario is not None:
+            app.PrintPlain(f"  [ok] Base scenario    : {base_scenario.loc_name}")
+        else:
+            app.PrintWarn("  [--] Base scenario    : none active in the base "
+                          "case; case scenarios start empty")
 
     # --- 6.4 Output folder writable --------------------------------------------
     try:
@@ -454,7 +467,8 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
         "POC_BB": POC_BB, "POC_BRK": POC_BRK,
         "Ext_grid": Ext_grid, "SC": SC, "PFC": PFC,
         "freq_volt_source": freq_volt_source,
-        "base_case": base_case, "sc_folder_root": sc_folder_root,
+        "base_case": base_case, "base_scenario": base_scenario,
+        "sc_folder_root": sc_folder_root,
     }
     return elm_objects, refs
 
@@ -574,6 +588,7 @@ def _run(app):
     PFC              = refs["PFC"]
     freq_volt_source = refs["freq_volt_source"]
     base_case        = refs["base_case"]
+    base_scenario    = refs["base_scenario"]
     sc_folder_root   = refs["sc_folder_root"]
 
     opscen_folder_root = gcc.get_folder(app, "scen")
@@ -601,13 +616,30 @@ def _run(app):
         app.PrintPlain(f"\nRun folder : '{run_tag}'")
 
     # --------------------------------------------------------------------------
-    # 7.7  Ensure controllers are in service and in correct control mode
+    # 7.7  Operating point, written into the ACTIVE case scenario per case
+    #      (never before a case scenario is active, so the base case's own
+    #      scenario is never modified)
     # --------------------------------------------------------------------------
-    SC.outserv  = 0
-    PFC.outserv = 0
-    SC.i_ctrl   = 1    # Reactive Power Control
-    SC.qu_char  = 0    # Const. Q
-    PFC.i_net   = 1    # Power-Frequency Control
+    def apply_operating_point(sc_cfg_item):
+        # Controllers in service and in the correct control mode
+        SC.outserv  = 0
+        PFC.outserv = 0
+        SC.i_ctrl   = 1    # Reactive Power Control
+        SC.qu_char  = 0    # Const. Q
+        PFC.i_net   = 1    # Power-Frequency Control
+
+        # The frequency voltage source is the POC source for these studies
+        # (the frequency steps act on its F0Hz); external grid out of service
+        others_off = gcc.use_voltage_source(app, Ext_grid, POC_BB,
+                                            freq_volt_source)
+        app.PrintPlain(
+            f"    Source   : '{freq_volt_source.loc_name}' in service; "
+            f"out of service: {[Ext_grid.loc_name] + others_off}"
+        )
+
+        PFC.psetp      = sc_cfg_item["psetp"]
+        SC.qsetp       = sc_cfg_item["qsetp"]
+        Ext_grid.usetp = sc_cfg_item["usetp"]
 
     # --------------------------------------------------------------------------
     # 7.8  Create operational scenarios up front (one per study case)
@@ -627,6 +659,10 @@ def _run(app):
             if existing:
                 opscen_objects[name] = existing[0]
                 app.PrintPlain(f"  [exists]  '{name}'")
+            elif base_scenario is not None:
+                opscen_objects[name] = target_folder.AddCopy(base_scenario, name)
+                app.PrintPlain(f"  [created] '{name}' (copy of "
+                               f"'{base_scenario.loc_name}')")
             else:
                 opscen_objects[name] = target_folder.CreateObject("IntScenario", name)
                 app.PrintPlain(f"  [created] '{name}'")
@@ -683,9 +719,7 @@ def _run(app):
                 else:
                     app.PrintWarn(f"    Op scenario '{sc_name}' not found — skipping link.")
 
-                PFC.psetp      = sc_cfg_item["psetp"]
-                SC.qsetp       = sc_cfg_item["qsetp"]
-                Ext_grid.usetp = sc_cfg_item["usetp"]
+                apply_operating_point(sc_cfg_item)
 
                 if opscen:
                     try:
@@ -746,9 +780,7 @@ def _run(app):
                 existing[0].Activate()
                 gcc.activate_grid(app, netdat_folder, Ext_grid.loc_name)
 
-                PFC.psetp      = sc_cfg_item["psetp"]
-                SC.qsetp       = sc_cfg_item["qsetp"]
-                Ext_grid.usetp = sc_cfg_item["usetp"]
+                apply_operating_point(sc_cfg_item)
 
             # ------------------------------------------------------------------
             # G. Run simulation (sequential, main thread only)
