@@ -212,6 +212,28 @@ def activate_grid(app, netdat_folder, grid_name):
     app.PrintWarn("Could not activate Grid ElmNet.")
 
 
+def use_external_grid(app, ext_grid, poc_bb):
+    """
+    Make the external grid the source at the POC, in the ACTIVE scenario:
+      * ElmXnet in service, and the switch in its cubicle closed
+      * every ElmVac connected to the POC busbar out of service
+    Returns the names of the ElmVac objects taken out of service.
+    """
+    ext_grid.outserv = 0
+    cub = getattr(ext_grid, "bus1", None)
+    if cub is not None:
+        for sw in cub.GetContents("*.StaSwitch"):
+            sw.on_off = 1
+
+    switched_off = []
+    for vac in app.GetCalcRelevantObjects("*.ElmVac") or []:
+        vac_cub = getattr(vac, "bus1", None)
+        if vac_cub is not None and vac_cub.GetParent() == poc_bb:
+            vac.outserv = 1
+            switched_off.append(vac.loc_name)
+    return switched_off
+
+
 def find_study_case_recursive(folder, name):
     """Recursively search for a study case by loc_name."""
     matches = folder.GetContents(f"{name}.IntCase")
