@@ -74,15 +74,22 @@ PRE_WINDOW_S = 0.5
 IC_TOL_PQ_PU = 0.02
 IC_TOL_U_PU  = 0.02
 
-# Placeholders, to be set from the Dutch grid code. None = not applied.
+# Placeholder (own choice, not from the grid code). None = not applied.
 #   CONNECTED_MIN_P_PU : minimum P at end of run (pu of pre-fault P) to count
 #                        as "still connected"
-#   IQ_MAX_PU          : cap on the required additional reactive current
-#                        (pu of rated current), e.g. converter current limit
-#   IQ_TOLERANCE_PU    : allowed shortfall on the required reactive current
 CONNECTED_MIN_P_PU = 0.05
-IQ_MAX_PU          = None
-IQ_TOLERANCE_PU    = 0.0
+
+# Additional reactive current, Netcode elektriciteit art. 3.19 sub 10
+# (RfG compliance verification NL v2.0, section 4.2.18):
+#   IQ_MAX_PU    : required injection is capped at 1.0 x I_N (sub 10k)
+#   IQ_TOL_UPPER : band above the k-line, +10% (sub 10l)
+#   IQ_TOL_LOWER : band below the k-line, -20% (sub 10l)
+#   IQ_MIN_U_PU  : no injection required below 15% voltage (sub 10m);
+#                  checked on the GU terminal voltage when it is recorded
+IQ_MAX_PU    = 1.0
+IQ_TOL_UPPER = 0.10
+IQ_TOL_LOWER = 0.20
+IQ_MIN_U_PU  = 0.15
 
 
 # CSV file name pattern written by the export: FRT_<type>_<uret>_<Q label>
@@ -95,6 +102,7 @@ COL_U2  = "POC Neg-Seq Voltage [pu]"
 COL_P   = "POC Active Power [MW]"
 COL_Q   = "POC Reactive Power [Mvar]"
 COL_IQ  = "POC Reactive Current [kA]"
+COL_GU1 = "GU Pos-Seq Voltage [pu]"
 
 
 # ==============================================================================
@@ -327,15 +335,33 @@ def evaluate_case(case, cols, limits, in_ka, pmax):
         r["iq_injection"] = "N/A"
         notes.append("fault shorter than the full Iq response time")
     else:
+        # Evaluated after the settling time, until clearance
         w0, w1 = t_fault + t_full, t_clear
-        required = k * (u_pre - mean_between(t, u1, w0, w1))
-        if IQ_MAX_PU is not None:
-            required = min(required, IQ_MAX_PU)
-        achieved = (mean_between(t, iq, w0, w1) - iq_pre) / in_ka
-        r["iq_required_pu"] = round(required, 3)
-        r["iq_achieved_pu"] = round(achieved, 3)
-        r["iq_injection"] = ("PASS" if achieved >= required - IQ_TOLERANCE_PU
-                             else "FAIL")
+
+        # Residual voltage for the 15% threshold: GU terminals if recorded
+        gu = cols.get(COL_GU1)
+        gu_ok = gu is not None and COL_GU1 not in (case.get("missing_columns") or [])
+        u_res = mean_between(t, gu if gu_ok else u1, w0, w1)
+        r["u_residual_pu"] = round(u_res, 3)
+        r["u_residual_at"] = "GU" if gu_ok else "POC"
+
+        if u_res < IQ_MIN_U_PU:
+            r["iq_injection"] = "N/A"
+            notes.append(f"residual voltage {u_res:.2f} pu < {IQ_MIN_U_PU} pu at "
+                         f"{r['u_residual_at']}: no reactive current required")
+        else:
+            k_line   = k * (u_pre - mean_between(t, u1, w0, w1))
+            required = min(k_line, IQ_MAX_PU)
+            lower    = (1.0 - IQ_TOL_LOWER) * required
+            upper    = (1.0 + IQ_TOL_UPPER) * k_line
+            achieved = (mean_between(t, iq, w0, w1) - iq_pre) / in_ka
+            r["iq_required_pu"] = round(required, 3)
+            r["iq_band_pu"]     = f"{lower:.3f} to {upper:.3f}"
+            r["iq_achieved_pu"] = round(achieved, 3)
+            r["iq_injection"]   = "PASS" if lower <= achieved <= upper else "FAIL"
+            if k_line > IQ_MAX_PU:
+                notes.append(f"k x dU = {k_line:.2f} pu, capped at "
+                             f"{IQ_MAX_PU} x I_N")
         if case.get("fault_type") != "three_phase":
             notes.append("asymmetric fault: Iq checked on positive sequence only")
 

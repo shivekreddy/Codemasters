@@ -127,8 +127,15 @@ RECORD_VARS_FRT = [
     ("poc_busbar", "m:u:C",       "POC Voltage C [pu]"),
     ("poc_busbar", "m:u1",        "POC Pos-Seq Voltage [pu]"),
     ("poc_busbar", "m:u2",        "POC Neg-Seq Voltage [pu]"),
-    # POC breaker — power and current (load convention at the grid:
-    # P negative = plant generating, Q positive = capacitive/leading export)
+    # GU busbar (generating unit terminals): the Dutch thresholds for current
+    # evaluation (10% / 0.15 pu residual voltage) refer to this voltage
+    ("gu_busbar",  "m:u:A",       "GU Voltage A [pu]"),
+    ("gu_busbar",  "m:u:B",       "GU Voltage B [pu]"),
+    ("gu_busbar",  "m:u:C",       "GU Voltage C [pu]"),
+    ("gu_busbar",  "m:u1",        "GU Pos-Seq Voltage [pu]"),
+    ("gu_busbar",  "m:u2",        "GU Neg-Seq Voltage [pu]"),
+    # POC breaker: power and current. The sign depends on the breaker's bus1
+    # orientation in the model; the evaluation detects it per case.
     ("poc_breaker", "m:Psum:bus1", "POC Active Power [MW]"),
     ("poc_breaker", "m:Qsum:bus1", "POC Reactive Power [Mvar]"),
     ("poc_breaker", "m:i1P:bus1",  "POC Active Current [kA]"),
