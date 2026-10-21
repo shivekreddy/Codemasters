@@ -128,10 +128,10 @@ grid_requirements_project_data:
                                   # Only applies if multiple variants defined in grid code
 
   dynamic_voltage_support:
-    k_factor: 2                   # Reactive current gain factor [pu/pu]
+    k_factor: 5                   # Reactive current gain factor [pu/pu] (default 5 at >= 66 kV, Netcode art. 3.19 sub 10h)
     response_time_ms:
-      start: 200                  # Time to start reactive current injection [ms]
-      full:  500                  # Time to reach full reactive current [ms]
+      start: 50                   # Rise time to 90% of the additional reactive current [ms] (simulation allowance 30-50 ms)
+      full:  80                   # Settling time, permanently within 90-110% [ms] (simulation allowance 60-80 ms)
 
   reactive_power_voltage_dependency:
     characteristic_id: null       # ID of Q(U) characteristic (if project-defined)
