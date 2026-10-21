@@ -705,7 +705,7 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
                 run_manifest = json.load(f)
             meta = {c["name"]: c for c in run_manifest.get("cases", [])}
     if not meta:
-        app.PrintWarn("Run manifest not found: case metadata (fault times, "
+        app.PrintWarn("Run manifest not found: case metadata (event times, "
                       "setpoints) will be missing from the export manifest.")
 
     # --- Export every study case in the run folder ---------------------------
