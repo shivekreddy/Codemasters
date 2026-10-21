@@ -71,7 +71,7 @@ from contextlib import contextmanager
 # Inside it they create (and refill on every export):
 #     <RAW_DATA_ROOT>\FRT Raw Data\     <- gcc_export_frt.py
 #     <RAW_DATA_ROOT>\Freq Raw Data\    <- gcc_export_freq.py
-RAW_DATA_ROOT = r"C:\Users\SHIRED\Documents\xyz"
+RAW_DATA_ROOT = r"C:\Users\SHIRED\Downloads\Results Export"
 
 RAW_DATA_FOLDERS = {
     "FRT":  "FRT Raw Data",
