@@ -21,7 +21,15 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 4.2
+# Version : 4.3
+#
+# CHANGELOG v4.2 -> v4.3
+# ----------------------
+#   * FIX: Qmax / Qmin were written to the station controller with the
+#     opposite sign. SC.qsetp is now written as QSETP_SIGN x qsetp, so the
+#     Qmax case writes -q_factor x Pmax. Case lists and the manifest keep the
+#     plant convention (Qmax = +q_factor x Pmax, generation positive), which
+#     is what gcc_evaluate_frt.py compares the measured pre-fault Q against.
 #
 
 import sys
@@ -60,6 +68,15 @@ CONFIG_FILE = None
 #   must interpolate on time, never index by row.
 # ------------------------------------------------------------------------------
 DTGRD_MAX_S = 0.01
+
+
+# ------------------------------------------------------------------------------
+# Station controller Q setpoint sign.
+#   The case Q values follow the plant convention (Qmax = +q_factor x Pmax).
+#   ElmStactrl.qsetp uses the opposite sign, so the value is flipped when it is
+#   written. Change to +1 if a model's controller uses the plant convention.
+# ------------------------------------------------------------------------------
+QSETP_SIGN = -1
 
 
 # ==============================================================================
@@ -663,7 +680,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v4.0 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v4.3 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -839,7 +856,7 @@ def _run(app):
                        + (f"; out of service: {vacs_off}" if vacs_off else ""))
 
         PFC.psetp      = psetp
-        SC.qsetp       = qsetp
+        SC.qsetp       = QSETP_SIGN * qsetp   # controller sign convention
         Ext_grid.usetp = usetp
 
     # --------------------------------------------------------------------------
@@ -1184,7 +1201,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "4.1",
+            "script_version": "4.3",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
