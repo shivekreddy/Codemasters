@@ -37,7 +37,14 @@
 #   gcc_common.py  — v2.0+, must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.0
+# Version : 5.1
+#
+# CHANGELOG v5.0 -> v5.1
+# ----------------------
+#   * FIX: Qmax / Qmin setpoints had the opposite sign. The Qmax case now
+#     writes -q_factor * Pmax to the station controller and Qmin writes
+#     +q_factor * Pmax (QSETP_SIGN below). The manifest 'qsetp' is the value
+#     actually written; 'q_label' still says Qmax / Qmin.
 #
 # CHANGELOG v4.2 -> v5.0
 # ----------------------
@@ -63,7 +70,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gcc_common as gcc
 
 
-SCRIPT_VERSION = "5.0"
+SCRIPT_VERSION = "5.1"
 
 # ------------------------------------------------------------------------------
 # PATH TO PROJECT CONFIG — file, folder, or None (project_config.yaml next to
@@ -91,6 +98,12 @@ ELEMENTS_REQUIRED = ("poc_busbar", "gu_busbar", "external_grid",
                      "station_ctrl", "pfc_ctrl", "inverter")
 ELEMENTS_OPTIONAL = ("poc_breaker",)   # without it, POC P/Q come from the busbar
 
+# Sign applied to Qmax / Qmin when writing the station controller setpoint
+# (ElmStactrl.qsetp). Its sign convention is opposite to the plant's
+# Qmax = +q_factor * Pmax, so the Qmax case is written as a negative qsetp.
+# Change to +1 if a model's controller uses the other convention.
+QSETP_SIGN = -1
+
 SIM_KEYS_REQUIRED = ("fault_start_s", "t_stop_s", "integration_step_s",
                      "t_start_s", "a_stable_integration")
 
@@ -117,8 +130,8 @@ def generate_study_cases(frt, sim_cfg, plant):
     t_fault = float(sim_cfg["fault_start_s"])
     t_stop  = float(sim_cfg["t_stop_s"])
     q_conditions = [("Q0",   0.0),
-                    ("Qmax", plant["qmax_mvar"]),
-                    ("Qmin", plant["qmin_mvar"])]
+                    ("Qmax", QSETP_SIGN * plant["qmax_mvar"]),
+                    ("Qmin", QSETP_SIGN * plant["qmin_mvar"])]
 
     cases = []
     for ft_str in frt.get("fault_types") or []:
