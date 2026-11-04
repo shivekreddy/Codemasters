@@ -21,7 +21,13 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 4.3
+# Version : 4.4
+#
+# CHANGELOG v4.3 -> v4.4
+# ----------------------
+#   * Fault events are named "Fault" (inception) and "Fault Clearance"
+#     instead of the busbar name, and the clearance is set to clear
+#     immediately (i_clearShc = 1) instead of at zero crossing.
 #
 # CHANGELOG v4.2 -> v4.3
 # ----------------------
@@ -219,14 +225,29 @@ def compute_fault_impedance(uret, usetp, nom_Z, ratio_R_X):
     return fault_R, fault_X
 
 
+FAULT_EVENT_NAME = "Fault"             # fault inception event
+CLEAR_EVENT_NAME = "Fault Clearance"   # fault clearance event
+I_SHC_CLEAR      = 4                   # EvtShc i_shc: clear short-circuit
+I_CLEARSHC_IMMEDIATE = 1               # EvtShc i_clearShc: 0 = at zero crossing,
+                                       #                    1 = immediately
+
+
 def create_fault_event(app, busbar, time_s, fault_type_int, R_f, X_f):
-    """Create a single EvtShc fault event in the active study case."""
+    """
+    Create a single EvtShc event in the active study case: the fault
+    inception ("Fault") or, for fault_type_int = 4, the clearance
+    ("Fault Clearance", cleared immediately rather than at zero crossing).
+    """
+    is_clear       = fault_type_int == I_SHC_CLEAR
     evt_folder     = app.GetFromStudyCase("Simulation Events/Fault.IntEvt")
-    event          = evt_folder.CreateObject("EvtShc", busbar.loc_name)
+    event          = evt_folder.CreateObject(
+        "EvtShc", CLEAR_EVENT_NAME if is_clear else FAULT_EVENT_NAME)
     event.p_target = busbar
     event.time     = time_s
     event.i_shc    = fault_type_int
-    if fault_type_int != 4:   # clear events carry no impedance
+    if is_clear:
+        event.i_clearShc = I_CLEARSHC_IMMEDIATE
+    else:                     # clear events carry no impedance
         event.R_f = R_f
         event.X_f = X_f
     return event
@@ -680,7 +701,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v4.3 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v4.4 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -963,7 +984,7 @@ def _run(app):
                 app.PrintPlain(f"    Fault Z  : R={R_f:.5f}  X={X_f:.5f} Ohm")
 
                 create_fault_event(app, POC_BB, t_fault, ft_int, R_f, X_f)  # apply
-                create_fault_event(app, POC_BB, t_clear, 4,      R_f, X_f)  # clear
+                create_fault_event(app, POC_BB, t_clear, I_SHC_CLEAR, R_f, X_f)  # clear
 
                 # --------------------------------------------------------------
                 # E. Record variables
@@ -1201,7 +1222,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "4.3",
+            "script_version": "4.4",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
