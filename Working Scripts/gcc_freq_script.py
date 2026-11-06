@@ -402,15 +402,15 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
     freq_volt_source = gcc.find_element(app, "ElmVac",     elem_cfg["freq_voltage_source"])
     # Optional here (not plotted), but resolved so that any RECORD_VARS_FREQ
     # entries keyed on them are recorded — same lookups as the FRT script.
-    GU_BB    = (gcc.find_element(app, "ElmTerm", elem_cfg["gu_busbar"],
-                                 required=False)
-                if "gu_busbar" in elem_cfg else None)
+    # Plant 1: elements.gu_busbar1 / inverter1 (or the old gu_busbar / inverter)
+    gu_name  = gcc.element_name(elem_cfg, "gu_busbar")
+    inv_name = gcc.element_name(elem_cfg, "inverter")
+    GU_BB    = (gcc.find_element(app, "ElmTerm", gu_name, required=False)
+                if gu_name else None)
     Inverter = None
-    if "inverter" in elem_cfg:
-        Inverter = (gcc.find_element(app, "ElmGenstat", elem_cfg["inverter"],
-                                     required=False)
-                    or gcc.find_element(app, "ElmSym", elem_cfg["inverter"],
-                                        required=False))
+    if inv_name:
+        Inverter = (gcc.find_element(app, "ElmGenstat", inv_name, required=False)
+                    or gcc.find_element(app, "ElmSym", inv_name, required=False))
 
     app.PrintPlain(f"  [ok] POC busbar       : {POC_BB.loc_name}")
     app.PrintPlain(f"  [ok] POC breaker      : {POC_BRK.loc_name}")

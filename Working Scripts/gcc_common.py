@@ -148,12 +148,77 @@ RECORD_VARS_FRT = [
     ("inverter",    "m:i1Q:bus1",  "Inverter Reactive Current [kA]"),
 ]
 
+# Plant 2 of a two-plant model (elements.gu_busbar2 / inverter2). Only
+# recorded and exported when plant 2 is configured — see record_vars_frt().
+RECORD_VARS_FRT_PLANT2 = [
+    ("gu_busbar2", "m:u:A",       "GU 2 Voltage A [pu]"),
+    ("gu_busbar2", "m:u:B",       "GU 2 Voltage B [pu]"),
+    ("gu_busbar2", "m:u:C",       "GU 2 Voltage C [pu]"),
+    ("gu_busbar2", "m:u1",        "GU 2 Pos-Seq Voltage [pu]"),
+    ("gu_busbar2", "m:u2",        "GU 2 Neg-Seq Voltage [pu]"),
+    ("inverter2",  "m:Psum:bus1", "Inverter 2 Active Power [MW]"),
+    ("inverter2",  "m:Qsum:bus1", "Inverter 2 Reactive Power [Mvar]"),
+    ("inverter2",  "m:i1P:bus1",  "Inverter 2 Active Current [kA]"),
+    ("inverter2",  "m:i1Q:bus1",  "Inverter 2 Reactive Current [kA]"),
+]
+
 RECORD_VARS_FREQ = [
     ("poc_busbar",  "m:fehz",      "POC Frequency [Hz]"),
     ("poc_busbar",  "m:u1",        "POC Pos-Seq Voltage [pu]"),
     ("poc_breaker", "m:Psum:bus1", "POC Active Power [MW]"),
     ("poc_breaker", "m:Qsum:bus1", "POC Reactive Power [Mvar]"),
 ]
+
+
+# ------------------------------------------------------------------------------
+# Plant elements (GU busbar + representative inverter per plant)
+#   elements.gu_busbar1 / inverter1 : plant 1 (required for FRT)
+#   elements.gu_busbar2 / inverter2 : plant 2, or null for a one-plant model
+#   The old one-plant keys gu_busbar / inverter are still accepted as plant 1.
+#   Record keys: plant 1 = 'gu_busbar' / 'inverter' (CSV columns unchanged),
+#                plant 2 = 'gu_busbar2' / 'inverter2'.
+# ------------------------------------------------------------------------------
+_PLANT_CONFIG_KEYS = {
+    "gu_busbar":  ("gu_busbar1", "gu_busbar"),
+    "inverter":   ("inverter1",  "inverter"),
+    "gu_busbar2": ("gu_busbar2",),
+    "inverter2":  ("inverter2",),
+}
+
+
+def element_name(elem_cfg, elm_key):
+    """The loc_name configured for an element key, or None if not set."""
+    for key in _PLANT_CONFIG_KEYS.get(elm_key, (elm_key,)):
+        if elem_cfg.get(key):
+            return elem_cfg[key]
+    return None
+
+
+def plant_elements(elem_cfg):
+    """
+    [(gu_busbar name, inverter name), ...] — plant 1, plus plant 2 when
+    configured. Raises if plant 1 is missing or plant 2 is half-configured.
+    """
+    plants = []
+    for n, gu_key, inv_key in ((1, "gu_busbar", "inverter"),
+                               (2, "gu_busbar2", "inverter2")):
+        gu, inv = element_name(elem_cfg, gu_key), element_name(elem_cfg, inv_key)
+        if gu and inv:
+            plants.append((gu, inv))
+        elif gu or inv or n == 1:
+            raise RuntimeError(
+                f"Plant {n}: set both 'elements.gu_busbar{n}' and "
+                f"'elements.inverter{n}'"
+                + (" (or set both to null for a one-plant model)." if n == 2
+                   else "."))
+    return plants
+
+
+def record_vars_frt(elem_cfg):
+    """FRT recorded variables for this model: plant 2 only if configured."""
+    two_plants = bool(element_name(elem_cfg, "gu_busbar2")
+                      or element_name(elem_cfg, "inverter2"))
+    return RECORD_VARS_FRT + (RECORD_VARS_FRT_PLANT2 if two_plants else [])
 
 
 def case_csv_filename(case_name):
@@ -644,7 +709,6 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
     Works without results: cases without data are exported as zeros and
     marked 'no_result_data' in the manifest (the evaluation skips them).
     """
-    record_vars = RECORD_VARS_FRT if study == "FRT" else RECORD_VARS_FREQ
     tolerance   = 2.0 * _EXPORT_DTGRD_MAX_S[study]
 
     app.PrintPlain("=" * 68)
@@ -660,13 +724,16 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
     app.PrintPlain(f"Config    : {config_path}")
     cfg      = load_yaml(config_path)
     elem_cfg = cfg.get("elements", {})
+    record_vars = (record_vars_frt(elem_cfg) if study == "FRT"
+                   else RECORD_VARS_FREQ)
 
     classes = {"poc_busbar": ["ElmTerm"], "poc_breaker": ["ElmCoup"],
-               "gu_busbar": ["ElmTerm"], "inverter": ["ElmGenstat", "ElmSym"]}
+               "gu_busbar": ["ElmTerm"], "inverter": ["ElmGenstat", "ElmSym"],
+               "gu_busbar2": ["ElmTerm"], "inverter2": ["ElmGenstat", "ElmSym"]}
     elm_objects = {}
     app.PrintPlain("\nElements:")
     for elm_key in dict.fromkeys(k for k, _, _ in record_vars):
-        name = elem_cfg.get(elm_key)
+        name = element_name(elem_cfg, elm_key)
         obj = None
         if name:
             for cls in classes.get(elm_key, []):

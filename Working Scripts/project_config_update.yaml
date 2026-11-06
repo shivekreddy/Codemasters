@@ -72,10 +72,14 @@ elements:
   # --- Busbars and Breakers ---
   poc_busbar:    "TenneT HV Station"           # ElmTerm  — POC busbar (faults applied here; freq/voltage plots)
   poc_breaker:   "POC Breaker"   # ElmCoup  — POC breaker (active/reactive power plots)
-  gu_busbar:     "TS1-A 1"       # ElmTerm  — HV side of main transformer (FRT GU Terminal page)
 
-  # --- Generator / Inverter ---
-  inverter:      "TS1-A 1 PV 1"  # ElmGenstat or ElmSym — representative inverter unit
+  # --- Plants: GU busbar + representative inverter per plant ---
+  # Each plant gets its own GU page in every FRT case. For a one-plant
+  # model set gu_busbar2 and inverter2 to null.
+  gu_busbar1:    "TS1-A 1"       # ElmTerm  — plant 1 GU terminal (HV side of main transformer)
+  inverter1:     "TS1-A 1 PV 1"  # ElmGenstat or ElmSym — plant 1 representative inverter
+  gu_busbar2:    null            # ElmTerm  — plant 2 GU terminal, or null
+  inverter2:     null            # ElmGenstat or ElmSym — plant 2 representative inverter, or null
 
   # --- Grid and Controllers ---
   external_grid: "TenneT Network"                     # ElmXnet  — external grid (source of fault level data)

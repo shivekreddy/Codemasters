@@ -21,7 +21,15 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 4.4
+# Version : 4.5
+#
+# CHANGELOG v4.4 -> v4.5
+# ----------------------
+#   * Two-plant models: elements.gu_busbar1 / inverter1 (plant 1) and
+#     gu_busbar2 / inverter2 (plant 2, null for a one-plant model). Each
+#     plant gets its own GU page ("GU Terminal 1" / "GU Terminal 2"; one
+#     plant keeps "GU Terminal"), and plant 2 is recorded for the export.
+#     The old keys gu_busbar / inverter still work as plant 1.
 #
 # CHANGELOG v4.3 -> v4.4
 # ----------------------
@@ -257,12 +265,13 @@ def create_fault_event(app, busbar, time_s, fault_type_int, R_f, X_f):
 # 4.  RESULT VARIABLE RECORDING
 # ==============================================================================
 
-def add_recorded_results(elmRes, elm_objects, app):
+def add_recorded_results(elmRes, elm_objects, app, record_vars=RECORD_VARS):
     """
     Add variables to the ElmRes result object for the active study case.
     elm_objects: dict mapping element_key -> PF object
+    record_vars: gcc.record_vars_frt(elem_cfg) — includes plant 2 if set
     """
-    for elm_key, variable, _label in RECORD_VARS:
+    for elm_key, variable, _label in record_vars:
         elm = elm_objects.get(elm_key)
         if elm is None:
             app.PrintWarn(
@@ -274,18 +283,28 @@ def add_recorded_results(elmRes, elm_objects, app):
 
 # ==============================================================================
 # 5.  PLOT PAGE SETUP
-#     Two pages per study case:
-#       PAGE 1 — 'POC'        : phase voltages, sequence voltages, power, current
-#       PAGE 2 — 'GU Terminal': same layout using GU busbar + inverter signals
+#     One POC page plus one GU page per plant:
+#       'POC'         : phase voltages, sequence voltages, power, current
+#       'GU Terminal' : same layout using the plant's GU busbar + inverter
+#                       ('GU Terminal 1' / 'GU Terminal 2' for two plants)
 #
 #     x-range is derived per case:  [t_fault - 1,  min(t_stop, t_clear + rec + 2)]
 #     where rec = post_fault_recovery.recovery_time_s from the grid code
 #     (falls back to 2 s if not defined).
 # ==============================================================================
 
-def setup_plot_pages(app, sc_cfg, recovery_time_s,
-                     POC_BB, POC_BRK, GU_BB, Inverter):
-    """Create and populate the two standard plot pages for the active study case."""
+def gu_page_names(n_plants):
+    """GU page names: 'GU Terminal' for one plant, numbered for two."""
+    if n_plants == 1:
+        return ["GU Terminal"]
+    return [f"GU Terminal {i}" for i in range(1, n_plants + 1)]
+
+
+def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants):
+    """
+    Create and populate the POC page and one GU page per plant for the
+    active study case. plants: [(GU busbar, inverter), ...]
+    """
 
     desktop = app.GetGraphicsBoard()
     comInc  = app.GetFromStudyCase("ComInc")
@@ -335,39 +354,40 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s,
     for _g in poc_graphs:
         gcc.set_xrange(_g, x_min, x_max, app)
 
-    # PAGE 2 — GU Terminal  (2x2 grid)
-    page_gu = desktop.GetPage("GU Terminal", 1, "GrpPage")
-    page_gu.SetResults(elmRes)
+    # GU pages — one per plant (2x2 grid each)
+    for page_name, (GU_BB, Inverter) in zip(gu_page_names(len(plants)), plants):
+        page_gu = desktop.GetPage(page_name, 1, "GrpPage")
+        page_gu.SetResults(elmRes)
 
-    gu_graphs = [
-        gcc.make_graph(page_gu, "Curve plot",
-                       [(GU_BB, "m:u:A", gcc.C_BLUE),
-                        (GU_BB, "m:u:B", gcc.C_RED),
-                        (GU_BB, "m:u:C", gcc.C_GREEN)],
-                       row=0, col=0, x_refs=x_refs),
-        gcc.make_graph(page_gu, "Curve plot(1)",
-                       [(GU_BB, "m:u1", gcc.C_BLUE),
-                        (GU_BB, "m:u2", gcc.C_RED)],
-                       row=0, col=1, x_refs=x_refs),
-        gcc.make_graph(page_gu, "Curve plot(2)",
-                       [(Inverter, "m:Psum:bus1", gcc.C_TEAL),
-                        (Inverter, "m:Qsum:bus1", gcc.C_BLUE)],
-                       row=1, col=0, x_refs=x_refs),
-        gcc.make_graph(page_gu, "Curve plot(3)",
-                       [(Inverter, "m:i1P:bus1", gcc.C_TEAL),
-                        (Inverter, "m:i1Q:bus1", gcc.C_ORANGE),
-                        (Inverter, "m:i2Q:bus1", gcc.C_GREEN)],
-                       row=1, col=1, x_refs=x_refs),
-    ]
+        gu_graphs = [
+            gcc.make_graph(page_gu, "Curve plot",
+                           [(GU_BB, "m:u:A", gcc.C_BLUE),
+                            (GU_BB, "m:u:B", gcc.C_RED),
+                            (GU_BB, "m:u:C", gcc.C_GREEN)],
+                           row=0, col=0, x_refs=x_refs),
+            gcc.make_graph(page_gu, "Curve plot(1)",
+                           [(GU_BB, "m:u1", gcc.C_BLUE),
+                            (GU_BB, "m:u2", gcc.C_RED)],
+                           row=0, col=1, x_refs=x_refs),
+            gcc.make_graph(page_gu, "Curve plot(2)",
+                           [(Inverter, "m:Psum:bus1", gcc.C_TEAL),
+                            (Inverter, "m:Qsum:bus1", gcc.C_BLUE)],
+                           row=1, col=0, x_refs=x_refs),
+            gcc.make_graph(page_gu, "Curve plot(3)",
+                           [(Inverter, "m:i1P:bus1", gcc.C_TEAL),
+                            (Inverter, "m:i1Q:bus1", gcc.C_ORANGE),
+                            (Inverter, "m:i2Q:bus1", gcc.C_GREEN)],
+                           row=1, col=1, x_refs=x_refs),
+        ]
 
-    try:
-        page_gu.SetLayoutMode(2)
-        page_gu.numLayoutColumns = 2
-    except Exception:
-        pass
+        try:
+            page_gu.SetLayoutMode(2)
+            page_gu.numLayoutColumns = 2
+        except Exception:
+            pass
 
-    for _h in gu_graphs:
-        gcc.set_xrange(_h, x_min, x_max, app)
+        for _h in gu_graphs:
+            gcc.set_xrange(_h, x_min, x_max, app)
 
     app.Rebuild(2)
 
@@ -577,10 +597,11 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
                 "t_start_s", "a_stable_integration"):
         if key not in sim_cfg:
             raise RuntimeError(f"Missing 'simulation.{key}' in project config.")
-    for key in ("poc_busbar", "poc_breaker", "gu_busbar", "external_grid",
-                "station_ctrl", "pfc_ctrl", "inverter"):
+    for key in ("poc_busbar", "poc_breaker", "external_grid",
+                "station_ctrl", "pfc_ctrl"):
         if key not in elem_cfg:
             raise RuntimeError(f"Missing 'elements.{key}' in project config.")
+    plant_names = gcc.plant_elements(elem_cfg)   # [(gu_busbar, inverter), ...]
     if float(sim_cfg["fault_start_s"]) >= float(sim_cfg["t_stop_s"]):
         raise RuntimeError(
             "simulation.fault_start_s must be smaller than simulation.t_stop_s."
@@ -589,7 +610,6 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
 
     # --- 6.2 Model elements ----------------------------------------------------
     POC_BB   = gcc.find_element(app, "ElmTerm",    elem_cfg["poc_busbar"])
-    GU_BB    = gcc.find_element(app, "ElmTerm",    elem_cfg["gu_busbar"])
     Ext_grid = gcc.find_element(app, "ElmXnet",    elem_cfg["external_grid"])
     SC       = gcc.find_element(app, "ElmStactrl", elem_cfg["station_ctrl"])
     PFC      = gcc.find_element(app, "ElmSecctrl", elem_cfg["pfc_ctrl"])
@@ -615,18 +635,23 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
             f"'{elem_cfg['poc_breaker']}'. Set 'elements.poc_breaker' to one "
             f"of the names listed above."
         )
-    # Inverter may be ElmGenstat (PV/storage) or ElmSym (wind)
-    Inverter = (gcc.find_element(app, "ElmGenstat", elem_cfg["inverter"],
-                                 required=False)
-                or gcc.find_element(app, "ElmSym", elem_cfg["inverter"]))
+    # One (GU busbar, inverter) pair per plant.
+    # Inverter may be ElmGenstat (PV/storage) or ElmSym (wind).
+    plants = []
+    for gu_name, inv_name in plant_names:
+        gu_bb    = gcc.find_element(app, "ElmTerm", gu_name)
+        inverter = (gcc.find_element(app, "ElmGenstat", inv_name, required=False)
+                    or gcc.find_element(app, "ElmSym", inv_name))
+        plants.append((gu_bb, inverter))
 
     app.PrintPlain(f"  [ok] POC busbar   : {POC_BB.loc_name}")
-    app.PrintPlain(f"  [ok] GU busbar    : {GU_BB.loc_name}")
     app.PrintPlain(f"  [ok] POC breaker  : {POC_BRK.loc_name}")
     app.PrintPlain(f"  [ok] Ext grid     : {Ext_grid.loc_name}")
     app.PrintPlain(f"  [ok] Station ctrl : {SC.loc_name}")
     app.PrintPlain(f"  [ok] PFC ctrl     : {PFC.loc_name}")
-    app.PrintPlain(f"  [ok] Inverter     : {Inverter.loc_name}")
+    for i, (gu_bb, inverter) in enumerate(plants, start=1):
+        app.PrintPlain(f"  [ok] Plant {i}      : GU busbar '{gu_bb.loc_name}', "
+                       f"inverter '{inverter.loc_name}'")
 
     # --- 6.3 Base case (only needed when creating cases) -----------------------
     sc_folder_root = gcc.get_folder(app, "study")
@@ -671,12 +696,15 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
     elm_objects = {
         "poc_busbar":  POC_BB,
         "poc_breaker": POC_BRK,
-        "gu_busbar":   GU_BB,
-        "inverter":    Inverter,
+        "gu_busbar":   plants[0][0],
+        "inverter":    plants[0][1],
     }
+    if len(plants) > 1:
+        elm_objects["gu_busbar2"] = plants[1][0]
+        elm_objects["inverter2"]  = plants[1][1]
     refs = {
-        "POC_BB": POC_BB, "POC_BRK": POC_BRK, "GU_BB": GU_BB,
-        "Inverter": Inverter, "Ext_grid": Ext_grid, "SC": SC, "PFC": PFC,
+        "POC_BB": POC_BB, "POC_BRK": POC_BRK, "plants": plants,
+        "Ext_grid": Ext_grid, "SC": SC, "PFC": PFC,
         "base_case": base_case, "base_scenario": base_scenario,
         "sc_folder_root": sc_folder_root,
     }
@@ -701,7 +729,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v4.4 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v4.5 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -815,8 +843,8 @@ def _run(app):
     )
     POC_BB   = refs["POC_BB"]
     POC_BRK  = refs["POC_BRK"]
-    GU_BB    = refs["GU_BB"]
-    Inverter = refs["Inverter"]
+    plants   = refs["plants"]
+    record_vars = gcc.record_vars_frt(elem_cfg)
     Ext_grid = refs["Ext_grid"]
     SC       = refs["SC"]
     PFC      = refs["PFC"]
@@ -991,14 +1019,16 @@ def _run(app):
                 # --------------------------------------------------------------
                 comInc.Execute()
                 elmRes = comInc.p_resvar
-                add_recorded_results(elmRes, elm_objects, app)
+                add_recorded_results(elmRes, elm_objects, app, record_vars)
 
                 # --------------------------------------------------------------
                 # F. Plot pages
                 # --------------------------------------------------------------
                 setup_plot_pages(app, sc_cfg, recovery_time_s,
-                                 POC_BB, POC_BRK, GU_BB, Inverter)
-                app.PrintPlain("    Plot pages : POC, GU Terminal — configured.")
+                                 POC_BB, POC_BRK, plants)
+                app.PrintPlain("    Plot pages : POC, "
+                               + ", ".join(gu_page_names(len(plants)))
+                               + " — configured.")
 
             else:
                 # --------------------------------------------------------------
@@ -1222,7 +1252,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "4.4",
+            "script_version": "4.5",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
