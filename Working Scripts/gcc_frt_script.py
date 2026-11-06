@@ -21,7 +21,20 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 4.5
+# Version : 5.0
+#
+# CHANGELOG v4.5 -> v5.0
+# ----------------------
+#   * The base case is copied AS IS. Per case the script now only adds the
+#     fault events, the recorded variables and the plot pages, and sets the
+#     station controller's Q setpoint (Qmax / Q0 / Qmin) in the case's own
+#     scenario. It no longer touches: grid activation, load flow settings,
+#     RMS settings (step size, network representation, start/stop time,
+#     step size adaptation), controller modes and in-service flags, the P
+#     and U setpoints, the external grid or voltage sources. Set all of
+#     these up in the base case.
+#   * Preflight reads the base case's RMS settings (read only) and warns if
+#     the stop time is too short or asymmetric faults would run balanced.
 #
 # CHANGELOG v4.4 -> v4.5
 # ----------------------
@@ -193,7 +206,41 @@ def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
 
 
 # ==============================================================================
-# 2.  RMS SIMULATION CONFIGURATION  (FRT-specific — stays in this script)
+# 2.  BASE CASE RMS SETTINGS — read only (the script never changes them)
+# ==============================================================================
+
+def check_base_case_rms(app, base_case, study_cases, recovery_time_s):
+    """
+    Read the base case's RMS settings (without activating or changing
+    anything) and warn where they do not suit the FRT cases:
+      * the stop time must reach the latest clearance + recovery time
+      * asymmetric faults need an unbalanced (rst) RMS simulation
+    Returns the base case's stop time [s], or None if it has no ComSim.
+    """
+    comInc = (base_case.GetContents("*.ComInc") or [None])[0]
+    comSim = (base_case.GetContents("*.ComSim") or [None])[0]
+    if comInc is None or comSim is None:
+        app.PrintWarn("  [--] Base RMS     : no ComInc/ComSim in the base case; "
+                      "set up and run an RMS simulation there first")
+        return None
+
+    t_stop  = float(comSim.tstop)
+    net     = str(comInc.iopt_net)
+    app.PrintPlain(f"  [ok] Base RMS     : {'unbalanced' if net == 'rst' else 'balanced'}"
+                   f", step {float(comInc.dtgrd) * 1000:g} ms, stop at {t_stop:g} s")
+
+    needed = max(c["t_clear"] for c in study_cases) + recovery_time_s
+    if t_stop < needed:
+        app.PrintWarn(f"  [!!] Base RMS     : stop time {t_stop:g} s is before the "
+                      f"latest clearance + recovery ({needed:g} s). Increase it "
+                      f"in the base case.")
+    if net != "rst" and any(c["ft_int"] in (1, 2, 3) for c in study_cases):
+        app.PrintWarn("  [!!] Base RMS     : the base case is set to a BALANCED RMS "
+                      "simulation, but there are asymmetric (1PH/2PH) faults. Set "
+                      "it to unbalanced (3-phase) in the base case.")
+    return t_stop
+
+
 # ==============================================================================
 
 def configure_rms(comInc, comSim, sim_cfg, ft_int, t_stop):
@@ -593,8 +640,7 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
     app.PrintPlain("\nPreflight checks...")
 
     # --- 6.1 Required config keys ---------------------------------------------
-    for key in ("fault_start_s", "t_stop_s", "integration_step_s",
-                "t_start_s", "a_stable_integration"):
+    for key in ("fault_start_s", "t_stop_s"):
         if key not in sim_cfg:
             raise RuntimeError(f"Missing 'simulation.{key}' in project config.")
     for key in ("poc_busbar", "poc_breaker", "external_grid",
@@ -729,7 +775,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v4.5 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.0 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -849,6 +895,15 @@ def _run(app):
     SC       = refs["SC"]
     PFC      = refs["PFC"]
     base_case      = refs["base_case"]
+
+    # The cases run with the base case's own RMS settings: read them, warn if
+    # they do not suit the FRT cases, and use its stop time for the manifest.
+    if base_case is not None:
+        base_t_stop = check_base_case_rms(app, base_case, study_cases,
+                                          recovery_time_s)
+        if base_t_stop is not None:
+            for sc in study_cases:
+                sc["t_stop"] = base_t_stop
     base_scenario  = refs["base_scenario"]
     sc_folder_root = refs["sc_folder_root"]
 
@@ -887,26 +942,13 @@ def _run(app):
     )
 
     # --------------------------------------------------------------------------
-    # 7.8  Operating point, written into the ACTIVE case scenario per case
-    #      (never before a case scenario is active, so the base case's own
-    #      scenario is never modified)
+    # 7.8  Q setpoint — the ONLY network value the script changes. Written into
+    #      the case's own scenario (a copy of the base case's scenario), never
+    #      before that scenario is active, so the base case is never modified.
     # --------------------------------------------------------------------------
-    def apply_operating_point(psetp, qsetp, usetp):
-        # Controllers in service and in the correct control mode
-        SC.outserv  = 0
-        PFC.outserv = 0
-        SC.i_ctrl   = 1   # Reactive Power Control
-        SC.qu_char  = 0   # Const. Q
-        PFC.i_net   = 1   # Power-Frequency Control
-
-        # External grid is ALWAYS the source; voltage sources at the POC off
-        vacs_off = gcc.use_external_grid(app, Ext_grid, POC_BB)
-        app.PrintPlain(f"    Source   : '{Ext_grid.loc_name}' in service"
-                       + (f"; out of service: {vacs_off}" if vacs_off else ""))
-
-        PFC.psetp      = psetp
-        SC.qsetp       = QSETP_SIGN * qsetp   # controller sign convention
-        Ext_grid.usetp = usetp
+    def set_q_setpoint(qsetp):
+        SC.qsetp = QSETP_SIGN * qsetp   # controller sign convention
+        app.PrintPlain(f"    Q setpoint: SC.qsetp = {QSETP_SIGN * qsetp:.3f} Mvar")
 
     # --------------------------------------------------------------------------
     # 7.9  Create all operational scenarios up front, each a copy of the
@@ -974,39 +1016,17 @@ def _run(app):
                     app.PrintPlain(f"    [copied] '{base_case.loc_name}' -> '{sc_name}'")
 
                 # --------------------------------------------------------------
-                # B. Activate case + scenario, THEN write setpoints, THEN save
-                #    the scenario so the case is self-contained. (Writing
-                #    setpoints before activating the scenario risks the
-                #    activation overlaying them; never saving them was why
-                #    run_sim_only lost the Q conditions in v3.1.)
+                # B. Activate the case and link its own scenario (a copy of
+                #    the base case's scenario, so all operational data is
+                #    kept and the base case's scenario is never written to)
                 # --------------------------------------------------------------
                 study_case.Activate()
-                gcc.activate_grid(app, netdat_folder, Ext_grid.loc_name)
-
                 opscen = opscen_objects.get(sc_name)
                 if opscen:
                     opscen.Activate()
 
-                apply_operating_point(psetp, qsetp, usetp)
-
-                if opscen:
-                    try:
-                        opscen.Save()
-                    except Exception as e:
-                        app.PrintWarn(f"    Could not save op scenario: {e}")
-
                 # --------------------------------------------------------------
-                # C. Load flow + RMS settings
-                # --------------------------------------------------------------
-                ldf    = app.GetFromStudyCase("ComLDF")
-                comInc = app.GetFromStudyCase("ComInc")
-                comSim = app.GetFromStudyCase("ComSim")
-
-                gcc.configure_loadflow(ldf)
-                configure_rms(comInc, comSim, sim_cfg, ft_int, t_stop)
-
-                # --------------------------------------------------------------
-                # D. Fault events
+                # C. Fault events
                 # --------------------------------------------------------------
                 R_f, X_f = compute_fault_impedance(uret, usetp, nom_Z, ratio_R_X)
                 app.PrintPlain(f"    Fault Z  : R={R_f:.5f}  X={X_f:.5f} Ohm")
@@ -1015,14 +1035,18 @@ def _run(app):
                 create_fault_event(app, POC_BB, t_clear, I_SHC_CLEAR, R_f, X_f)  # clear
 
                 # --------------------------------------------------------------
-                # E. Record variables
+                # D. Record variables (added to the case's result object;
+                #    no calculation is run and no setting is changed)
                 # --------------------------------------------------------------
-                comInc.Execute()
-                elmRes = comInc.p_resvar
-                add_recorded_results(elmRes, elm_objects, app, record_vars)
+                elmRes = app.GetFromStudyCase("ComInc").p_resvar
+                if elmRes is None:
+                    app.PrintWarn("    No result object set in the case's "
+                                  "ComInc — variables not recorded.")
+                else:
+                    add_recorded_results(elmRes, elm_objects, app, record_vars)
 
                 # --------------------------------------------------------------
-                # F. Plot pages
+                # E. Plot pages
                 # --------------------------------------------------------------
                 setup_plot_pages(app, sc_cfg, recovery_time_s,
                                  POC_BB, POC_BRK, plants)
@@ -1030,13 +1054,23 @@ def _run(app):
                                + ", ".join(gu_page_names(len(plants)))
                                + " — configured.")
 
+                # --------------------------------------------------------------
+                # F. Q setpoint, then save the case scenario so the case is
+                #    self-contained when opened manually
+                # --------------------------------------------------------------
+                set_q_setpoint(qsetp)
+                if opscen:
+                    try:
+                        opscen.Save()
+                    except Exception as e:
+                        app.PrintWarn(f"    Could not save op scenario: {e}")
+
             else:
                 # --------------------------------------------------------------
                 # run_sim_only — activate the existing study case from the
-                # run folder resolved in 7.6, then RE-APPLY the pre-fault
-                # setpoints for this case. The setpoints travel in sc_cfg, so
-                # the Q0/Qmax/Qmin conditions are always correct regardless of
-                # what is stored in the scenario.
+                # run folder resolved in 7.6, then RE-APPLY the Q setpoint
+                # for this case (it travels in sc_cfg, so Q0/Qmax/Qmin are
+                # always right). Nothing else is changed.
                 # --------------------------------------------------------------
                 existing = sc_folder.GetContents(f"{sc_name}.IntCase")
                 if not existing:
@@ -1045,28 +1079,7 @@ def _run(app):
                         f"Re-run with setup_only=True to recreate study cases."
                     )
                 existing[0].Activate()
-                gcc.activate_grid(app, netdat_folder, Ext_grid.loc_name)
-
-                apply_operating_point(psetp, qsetp, usetp)
-
-            # ------------------------------------------------------------------
-            # G0. Solver hang protection — applied to EVERY case, always.
-            #
-            #   iopt_adapt=1 with a dtgrd_max cap forces PF to give up on a
-            #   diverging case instead of shrinking the timestep indefinitely.
-            #   This is set during case CREATION, not only before running, so
-            #   that a case executed later from the Task Automation dialog
-            #   (setup_only mode) carries the protection too. Without it, a
-            #   parallel batch can hang on one bad case with no Python running
-            #   to notice.
-            #
-            #   NOTE: with iopt_adapt=1 the result time base is NON-UNIFORM.
-            #   The evaluation tool must interpolate on time, never index
-            #   by row number.
-            # ------------------------------------------------------------------
-            comInc = app.GetFromStudyCase("ComInc")
-            comInc.iopt_adapt = 1      # automatic step size adaptation
-            comInc.dtgrd_max  = DTGRD_MAX_S
+                set_q_setpoint(qsetp)
 
             # ------------------------------------------------------------------
             # G. Run simulation — SEQUENTIAL mode only.
@@ -1252,7 +1265,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "4.5",
+            "script_version": "5.0",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
