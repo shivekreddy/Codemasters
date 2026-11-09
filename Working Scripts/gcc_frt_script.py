@@ -21,7 +21,14 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.0
+# Version : 5.1
+#
+# CHANGELOG v5.0 -> v5.1
+# ----------------------
+#   * The simulation stop time of each case is set from simulation.t_stop_s
+#     in the project config (ComSim.tstop only). v5.0 kept the base case's
+#     stop time. Nothing else of the copied base case is changed.
+#   * Removed the unused configure_rms() left over from v4.x.
 #
 # CHANGELOG v4.5 -> v5.0
 # ----------------------
@@ -213,50 +220,33 @@ def check_base_case_rms(app, base_case, study_cases, recovery_time_s):
     """
     Read the base case's RMS settings (without activating or changing
     anything) and warn where they do not suit the FRT cases:
-      * the stop time must reach the latest clearance + recovery time
+      * the cases' stop time (simulation.t_stop_s) must reach the latest
+        clearance + recovery time
       * asymmetric faults need an unbalanced (rst) RMS simulation
-    Returns the base case's stop time [s], or None if it has no ComSim.
     """
     comInc = (base_case.GetContents("*.ComInc") or [None])[0]
     comSim = (base_case.GetContents("*.ComSim") or [None])[0]
     if comInc is None or comSim is None:
         app.PrintWarn("  [--] Base RMS     : no ComInc/ComSim in the base case; "
                       "set up and run an RMS simulation there first")
-        return None
+        return
 
-    t_stop  = float(comSim.tstop)
-    net     = str(comInc.iopt_net)
+    net = str(comInc.iopt_net)
     app.PrintPlain(f"  [ok] Base RMS     : {'unbalanced' if net == 'rst' else 'balanced'}"
-                   f", step {float(comInc.dtgrd) * 1000:g} ms, stop at {t_stop:g} s")
+                   f", step {float(comInc.dtgrd) * 1000:g} ms (stop time "
+                   f"{float(comSim.tstop):g} s in the base case; the FRT cases "
+                   f"use t_stop_s)")
 
+    t_stop = study_cases[0]["t_stop"]
     needed = max(c["t_clear"] for c in study_cases) + recovery_time_s
     if t_stop < needed:
-        app.PrintWarn(f"  [!!] Base RMS     : stop time {t_stop:g} s is before the "
-                      f"latest clearance + recovery ({needed:g} s). Increase it "
-                      f"in the base case.")
+        app.PrintWarn(f"  [!!] Stop time    : t_stop_s = {t_stop:g} s is before the "
+                      f"latest clearance + recovery ({needed:g} s). Increase "
+                      f"simulation.t_stop_s in the project config.")
     if net != "rst" and any(c["ft_int"] in (1, 2, 3) for c in study_cases):
         app.PrintWarn("  [!!] Base RMS     : the base case is set to a BALANCED RMS "
                       "simulation, but there are asymmetric (1PH/2PH) faults. Set "
                       "it to unbalanced (3-phase) in the base case.")
-    return t_stop
-
-
-# ==============================================================================
-
-def configure_rms(comInc, comSim, sim_cfg, ft_int, t_stop):
-    """
-    Configure ComInc and ComSim for an RMS simulation.
-    Asymmetric faults (1ph-g, 2ph, 2ph-g) require unbalanced (rst) network
-    representation. Three-phase faults use balanced (sym).
-    """
-    comInc.iopt_sim   = "rms"
-    comInc.iopt_show  = 0
-    comInc.iopt_adapt = 0
-    comInc.dtgrd      = float(sim_cfg["integration_step_s"])
-    comInc.tstart     = float(sim_cfg["t_start_s"])
-    comInc.iopt_lt    = int(sim_cfg["a_stable_integration"])
-    comInc.iopt_net   = "rst" if ft_int in (1, 2, 3) else "sym"
-    comSim.tstop      = t_stop
 
 
 # ==============================================================================
@@ -775,7 +765,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.0 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.1 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -896,14 +886,10 @@ def _run(app):
     PFC      = refs["PFC"]
     base_case      = refs["base_case"]
 
-    # The cases run with the base case's own RMS settings: read them, warn if
-    # they do not suit the FRT cases, and use its stop time for the manifest.
+    # The cases run with the base case's own RMS settings (apart from the stop
+    # time): read them and warn if they do not suit the FRT cases.
     if base_case is not None:
-        base_t_stop = check_base_case_rms(app, base_case, study_cases,
-                                          recovery_time_s)
-        if base_t_stop is not None:
-            for sc in study_cases:
-                sc["t_stop"] = base_t_stop
+        check_base_case_rms(app, base_case, study_cases, recovery_time_s)
     base_scenario  = refs["base_scenario"]
     sc_folder_root = refs["sc_folder_root"]
 
@@ -942,13 +928,21 @@ def _run(app):
     )
 
     # --------------------------------------------------------------------------
-    # 7.8  Q setpoint — the ONLY network value the script changes. Written into
-    #      the case's own scenario (a copy of the base case's scenario), never
-    #      before that scenario is active, so the base case is never modified.
+    # 7.8  What the script changes on each copied case, besides the events,
+    #      recorded variables and plots:
+    #        * Q setpoint — the ONLY network value. Written into the case's own
+    #          scenario (a copy of the base case's scenario), never before that
+    #          scenario is active, so the base case is never modified.
+    #        * Simulation stop time (ComSim.tstop) from simulation.t_stop_s.
     # --------------------------------------------------------------------------
     def set_q_setpoint(qsetp):
         SC.qsetp = QSETP_SIGN * qsetp   # controller sign convention
         app.PrintPlain(f"    Q setpoint: SC.qsetp = {QSETP_SIGN * qsetp:.3f} Mvar")
+
+    def set_stop_time(t_stop):
+        """Simulation stop time from simulation.t_stop_s (ComSim.tstop only)."""
+        app.GetFromStudyCase("ComSim").tstop = float(t_stop)
+        app.PrintPlain(f"    Stop time : {float(t_stop):g} s")
 
     # --------------------------------------------------------------------------
     # 7.9  Create all operational scenarios up front, each a copy of the
@@ -1058,6 +1052,7 @@ def _run(app):
                 # F. Q setpoint, then save the case scenario so the case is
                 #    self-contained when opened manually
                 # --------------------------------------------------------------
+                set_stop_time(t_stop)
                 set_q_setpoint(qsetp)
                 if opscen:
                     try:
@@ -1079,6 +1074,7 @@ def _run(app):
                         f"Re-run with setup_only=True to recreate study cases."
                     )
                 existing[0].Activate()
+                set_stop_time(t_stop)
                 set_q_setpoint(qsetp)
 
             # ------------------------------------------------------------------
@@ -1265,7 +1261,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.0",
+            "script_version": "5.1",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
