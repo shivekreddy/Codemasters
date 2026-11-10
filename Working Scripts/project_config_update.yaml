@@ -117,11 +117,11 @@ simulation:
   t_stop_s:             20.0    # Simulation stop time for FRT cases [s]
   fault_start_s:        10.0    # Time at which faults are applied [s]
 
-  # FRT Qmax / Qmin cases at reduced active power, so the inverters are not
-  # overloaded at full Q. Q stays at q_factor x Pmax (e.g. 10 MW plant:
-  # P = 9.3 MW, Q = +/-3.3 Mvar). Q0 cases keep the base case's P.
+  # All FRT cases (Q0, Qmax, Qmin) at reduced active power, so the inverters
+  # are not overloaded at full Q. Q stays at q_factor x Pmax (e.g. 10 MW
+  # plant: P = 9.3 MW, Q = 0 / +/-3.3 Mvar).
   frt_reduced_p:        1       # 1 = on, 0 = off (P as set in the base case)
-  frt_reduced_p_factor: 0.93    # P = factor x Pmax for the Qmax / Qmin cases
+  frt_reduced_p_factor: 0.93    # P = factor x Pmax for every FRT case
   a_stable_integration: 1       # 0=per element, 1=all elements, 2=per element+composite
 
 

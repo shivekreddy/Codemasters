@@ -21,7 +21,12 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.3
+# Version : 5.4
+#
+# CHANGELOG v5.3 -> v5.4
+# ----------------------
+#   * frt_reduced_p now applies to ALL FRT cases (Q0, Qmax and Qmin):
+#     P = frt_reduced_p_factor x Pmax; Q stays at 0 / +/- q_factor x Pmax.
 #
 # CHANGELOG v5.2 -> v5.3
 # ----------------------
@@ -199,7 +204,7 @@ def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
     t_fault = float(sim_cfg["fault_start_s"])
     t_stop  = float(sim_cfg["t_stop_s"])
 
-    # Qmax / Qmin at reduced P (simulation.frt_reduced_p = 1); Q0 at Pmax
+    # All cases at reduced P when simulation.frt_reduced_p = 1
     reduced_p, p_factor = frt_reduced_p(sim_cfg)
 
     q_conditions = [
@@ -234,9 +239,8 @@ def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
                     "t_fault":    t_fault,
                     "t_clear":    t_clear,
                     "t_stop":     t_stop,
-                    "psetp":      (p_factor * Pmax
-                                   if reduced_p and q_label != "Q0" else Pmax),
-                    "p_reduced":  reduced_p and q_label != "Q0",
+                    "psetp":      p_factor * Pmax if reduced_p else Pmax,
+                    "p_reduced":  reduced_p,
                     "qsetp":      qsetp,
                     "usetp":      1.0,
                     "q_label":    q_label,
@@ -798,7 +802,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.3 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.4 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -871,7 +875,7 @@ def _run(app):
                    f"execution_mode={execution_mode}")
     reduced_p, p_factor = frt_reduced_p(sim_cfg)
     app.PrintPlain("Reduced P: " + (
-        f"ON — Qmax/Qmin cases at {p_factor:g} x Pmax = {p_factor * Pmax:.2f} MW, "
+        f"ON — all cases at {p_factor:g} x Pmax = {p_factor * Pmax:.2f} MW, "
         f"Q = +/-{Qmax:.2f} Mvar" if reduced_p
         else "off — P as set in the base case"))
 
@@ -968,11 +972,11 @@ def _run(app):
     # --------------------------------------------------------------------------
     # 7.8  What the script changes on each copied case, besides the events,
     #      recorded variables and plots:
-    #        * Q setpoint — the ONLY network value. Written into the case's own
-    #          scenario (a copy of the base case's scenario), never before that
-    #          scenario is active, so the base case is never modified.
-    #        * P setpoint — only for the Qmax / Qmin cases when
-    #          simulation.frt_reduced_p = 1, into the same case scenario.
+    #        * Q setpoint. Written into the case's own scenario (a copy of the
+    #          base case's scenario), never before that scenario is active, so
+    #          the base case is never modified.
+    #        * P setpoint — only when simulation.frt_reduced_p = 1 (all cases),
+    #          into the same case scenario.
     #        * Simulation stop time (ComSim.tstop) from simulation.t_stop_s.
     # --------------------------------------------------------------------------
     def set_q_setpoint(qsetp):
@@ -1310,7 +1314,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.3",
+            "script_version": "5.4",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
