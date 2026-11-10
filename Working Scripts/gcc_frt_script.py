@@ -21,7 +21,15 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.2
+# Version : 5.3
+#
+# CHANGELOG v5.2 -> v5.3
+# ----------------------
+#   * Option simulation.frt_reduced_p (1/0): the Qmax and Qmin cases run at
+#     frt_reduced_p_factor x Pmax (default 0.93) so the inverters are not
+#     overloaded at full Q; Q stays at +/- q_factor x Pmax. The P setpoint
+#     (PFC.psetp) is then written in those cases' own scenarios. With the
+#     option off, P is not touched (the base case's value is used).
 #
 # CHANGELOG v5.1 -> v5.2
 # ----------------------
@@ -147,6 +155,19 @@ RECORD_VARS = gcc.RECORD_VARS_FRT
 #     Derives all FRT cases automatically from the grid code file.
 # ==============================================================================
 
+def frt_reduced_p(sim_cfg):
+    """
+    (enabled, factor) from simulation.frt_reduced_p (1/0) and
+    simulation.frt_reduced_p_factor (default 0.93).
+    """
+    enabled = int(sim_cfg.get("frt_reduced_p", 0) or 0) == 1
+    factor  = float(sim_cfg.get("frt_reduced_p_factor", 0.93))
+    if enabled and not 0.0 < factor <= 1.0:
+        raise RuntimeError("simulation.frt_reduced_p_factor must be between "
+                           f"0 and 1, got {factor}.")
+    return enabled, factor
+
+
 def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
     """
     Generate the full list of FRT study cases from the grid code requirements.
@@ -177,6 +198,9 @@ def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
 
     t_fault = float(sim_cfg["fault_start_s"])
     t_stop  = float(sim_cfg["t_stop_s"])
+
+    # Qmax / Qmin at reduced P (simulation.frt_reduced_p = 1); Q0 at Pmax
+    reduced_p, p_factor = frt_reduced_p(sim_cfg)
 
     q_conditions = [
         ("Q0",   0.0),
@@ -210,7 +234,9 @@ def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
                     "t_fault":    t_fault,
                     "t_clear":    t_clear,
                     "t_stop":     t_stop,
-                    "psetp":      Pmax,
+                    "psetp":      (p_factor * Pmax
+                                   if reduced_p and q_label != "Q0" else Pmax),
+                    "p_reduced":  reduced_p and q_label != "Q0",
                     "qsetp":      qsetp,
                     "usetp":      1.0,
                     "q_label":    q_label,
@@ -772,7 +798,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.2 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.3 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -843,6 +869,11 @@ def _run(app):
     app.PrintPlain(f"Flags    : setup_only={setup_only}  "
                    f"run_sim_only={run_sim_only}  "
                    f"execution_mode={execution_mode}")
+    reduced_p, p_factor = frt_reduced_p(sim_cfg)
+    app.PrintPlain("Reduced P: " + (
+        f"ON — Qmax/Qmin cases at {p_factor:g} x Pmax = {p_factor * Pmax:.2f} MW, "
+        f"Q = +/-{Qmax:.2f} Mvar" if reduced_p
+        else "off — P as set in the base case"))
 
     # --------------------------------------------------------------------------
     # 7.4  Generate study cases from grid code
@@ -940,11 +971,20 @@ def _run(app):
     #        * Q setpoint — the ONLY network value. Written into the case's own
     #          scenario (a copy of the base case's scenario), never before that
     #          scenario is active, so the base case is never modified.
+    #        * P setpoint — only for the Qmax / Qmin cases when
+    #          simulation.frt_reduced_p = 1, into the same case scenario.
     #        * Simulation stop time (ComSim.tstop) from simulation.t_stop_s.
     # --------------------------------------------------------------------------
     def set_q_setpoint(qsetp):
         SC.qsetp = QSETP_SIGN * qsetp   # controller sign convention
         app.PrintPlain(f"    Q setpoint: SC.qsetp = {QSETP_SIGN * qsetp:.3f} Mvar")
+
+    def set_p_setpoint(sc_cfg):
+        """Reduced P for this case (frt_reduced_p); otherwise P is not touched."""
+        if sc_cfg.get("p_reduced"):
+            PFC.psetp = float(sc_cfg["psetp"])
+            app.PrintPlain(f"    P setpoint: PFC.psetp = {sc_cfg['psetp']:.3f} MW "
+                           f"(reduced)")
 
     def set_stop_time(t_stop):
         """Simulation stop time from simulation.t_stop_s (ComSim.tstop only)."""
@@ -1060,6 +1100,7 @@ def _run(app):
                 #    self-contained when opened manually
                 # --------------------------------------------------------------
                 set_stop_time(t_stop)
+                set_p_setpoint(sc_cfg)
                 set_q_setpoint(qsetp)
                 if opscen:
                     try:
@@ -1082,6 +1123,7 @@ def _run(app):
                     )
                 existing[0].Activate()
                 set_stop_time(t_stop)
+                set_p_setpoint(sc_cfg)
                 set_q_setpoint(qsetp)
 
             # ------------------------------------------------------------------
@@ -1268,7 +1310,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.2",
+            "script_version": "5.3",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
