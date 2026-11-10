@@ -21,7 +21,13 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.1
+# Version : 5.2
+#
+# CHANGELOG v5.1 -> v5.2
+# ----------------------
+#   * FIX: Qmax / Qmin sign. SC.qsetp is now written in the plant convention
+#     (QSETP_SIGN = +1): the Qmax case writes +q_factor x Pmax and the Qmin
+#     case -q_factor x Pmax. (v4.3 - v5.1 wrote them the other way round.)
 #
 # CHANGELOG v5.0 -> v5.1
 # ----------------------
@@ -107,10 +113,11 @@ DTGRD_MAX_S = 0.01
 # ------------------------------------------------------------------------------
 # Station controller Q setpoint sign.
 #   The case Q values follow the plant convention (Qmax = +q_factor x Pmax).
-#   ElmStactrl.qsetp uses the opposite sign, so the value is flipped when it is
-#   written. Change to +1 if a model's controller uses the plant convention.
+#   ElmStactrl.qsetp uses the same sign, so Qmax is written as +q_factor x Pmax
+#   and Qmin as -q_factor x Pmax. Set to -1 for a controller that uses the
+#   opposite sign.
 # ------------------------------------------------------------------------------
-QSETP_SIGN = -1
+QSETP_SIGN = +1
 
 
 # ==============================================================================
@@ -765,7 +772,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.1 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.2 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -1261,7 +1268,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.1",
+            "script_version": "5.2",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
