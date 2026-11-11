@@ -90,6 +90,21 @@ elements:
 
 # ==============================================================================
 #  <<<  USER INPUT REQUIRED  >>>
+#  SECTION 4b — PLOT LEGEND NAMES
+#  Every curve on the FRT plot pages is labelled "<name> <variable> (<unit>)",
+#  e.g. "Inverter 1 Total Active Power (MW)". Set the <name> per element here.
+# ==============================================================================
+
+plot_labels:
+  poc_busbar:   "POC"          # POC page: voltages
+  poc_breaker:  "POC"          # POC page: power and currents
+  gu_busbar1:   "GU 1"         # GU page plant 1: voltages
+  inverter1:    "Inverter 1"   # GU page plant 1: power and currents
+  gu_busbar2:   "GU 2"         # GU page plant 2 (if configured)
+  inverter2:    "Inverter 2"   # GU page plant 2 (if configured)
+
+# ==============================================================================
+#  <<<  USER INPUT REQUIRED  >>>
 #  SECTION 5 — RESULTS OUTPUT
 #  Folder where CSV results are saved after simulations run.
 # ==============================================================================

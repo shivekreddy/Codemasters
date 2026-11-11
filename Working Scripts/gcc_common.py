@@ -497,12 +497,67 @@ def add_x_ref_line(plot, time_s, color=C_REF):
     return obj
 
 
+# ------------------------------------------------------------------------------
+# Curve legend labels: "<name> <description> (<unit>)",
+#   e.g. "Inverter 1 Total Active Power (MW)"
+# The name per element comes from the project config section plot_labels.
+# ------------------------------------------------------------------------------
+VARIABLE_LABELS = {
+    "m:u:A":       ("Line-Ground Voltage A",              "p.u."),
+    "m:u:B":       ("Line-Ground Voltage B",              "p.u."),
+    "m:u:C":       ("Line-Ground Voltage C",              "p.u."),
+    "m:u1":        ("Positive-Sequence Voltage",          "p.u."),
+    "m:u2":        ("Negative-Sequence Voltage",          "p.u."),
+    "m:Psum:bus1": ("Total Active Power",                 "MW"),
+    "m:Qsum:bus1": ("Total Reactive Power",               "Mvar"),
+    "m:i1P:bus1":  ("Positive-Sequence Active Current",   "p.u."),
+    "m:i1Q:bus1":  ("Positive-Sequence Reactive Current", "p.u."),
+    "m:i2Q:bus1":  ("Negative-Sequence Reactive Current", "p.u."),
+    "m:fehz":      ("Frequency",                          "Hz"),
+}
+
+# PltDataseries attribute holding the user-defined legend label per curve
+CURVE_LABEL_ATTR = "curveTableLabel"
+
+# Curve-label errors seen by make_graph (reported once by the calling script)
+LABEL_ERRORS = []
+
+
+def curve_label(name, variable):
+    """'<name> <description> (<unit>)' for a plotted variable."""
+    desc, unit = VARIABLE_LABELS.get(variable, (variable, ""))
+    return f"{name} {desc}" + (f" ({unit})" if unit else "")
+
+
+# Default display names when plot_labels (or a key in it) is not set
+_PLOT_LABEL_DEFAULTS = {
+    "poc_busbar": "POC", "poc_breaker": "POC",
+    "gu_busbar1": "GU 1", "inverter1": "Inverter 1",
+    "gu_busbar2": "GU 2", "inverter2": "Inverter 2",
+}
+
+
+def plot_label_names(cfg):
+    """
+    Display names for the plot legends from the project config:
+      plot_labels: {poc_busbar, poc_breaker, gu_busbar1, inverter1,
+                    gu_busbar2, inverter2}
+    Missing keys fall back to POC / GU 1 / Inverter 1 / GU 2 / Inverter 2.
+    """
+    given = cfg.get("plot_labels") or {}
+    return {k: str(given.get(k) or default)
+            for k, default in _PLOT_LABEL_DEFAULTS.items()}
+
+
 def make_graph(page, title, elm_var_color_list,
-               clear_existing=True, row=None, col=None, x_refs=None):
+               clear_existing=True, row=None, col=None, x_refs=None,
+               labels=None):
     """
     Create (or fetch) a curve plot on a page and add the specified curves.
 
     elm_var_color_list : list of (element, variable_string, color) tuples
+    labels             : optional legend label per curve (same order); written
+                         to the data series' CURVE_LABEL_ATTR column
     clear_existing     : remove existing curves first, so re-runs on the same
                          page always produce clean plots
     row, col           : optional grid placement on the page (2x2 layouts)
@@ -528,6 +583,11 @@ def make_graph(page, title, elm_var_color_list,
         ds.AddCurve(elm, var)
     ds.curveTableColor     = [c for _, _, c in elm_var_color_list]
     ds.curveTableLineStyle = [1] * len(elm_var_color_list)
+    if labels:
+        try:
+            setattr(ds, CURVE_LABEL_ATTR, list(labels))
+        except Exception as e:
+            LABEL_ERRORS.append(f"{title}: {e}")
 
     if row is not None and col is not None:
         try:

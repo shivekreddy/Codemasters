@@ -21,7 +21,13 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.4
+# Version : 5.5
+#
+# CHANGELOG v5.4 -> v5.5
+# ----------------------
+#   * Every plotted curve gets a legend label "<name> <variable> (<unit>)",
+#     e.g. "Inverter 1 Total Active Power (MW)". The names per element are set
+#     in the project config section plot_labels.
 #
 # CHANGELOG v5.3 -> v5.4
 # ----------------------
@@ -374,10 +380,13 @@ def gu_page_names(n_plants):
     return [f"GU Terminal {i}" for i in range(1, n_plants + 1)]
 
 
-def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants):
+def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
+                     names):
     """
     Create and populate the POC page and one GU page per plant for the
     active study case. plants: [(GU busbar, inverter), ...]
+    names: legend names from gcc.plot_label_names() — every curve is labelled
+    "<name> <variable> (<unit>)".
     """
 
     desktop = app.GetGraphicsBoard()
@@ -392,76 +401,49 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants):
     x_max = min(t_stop, t_clear + recovery_time_s + 2.0)
     x_refs = [t_fault, t_clear]
 
-    # PAGE 1 — POC  (2x2 grid)
-    page_poc = desktop.GetPage("POC", 1, "GrpPage")
-    page_poc.SetResults(elmRes)
+    def graph(page, title, curves, row, col):
+        """curves: [(element, legend name, variable, colour), ...]"""
+        return gcc.make_graph(
+            page, title, [(elm, var, colour) for elm, _, var, colour in curves],
+            row=row, col=col, x_refs=x_refs,
+            labels=[gcc.curve_label(name, var) for _, name, var, _ in curves])
 
-    _p_src = POC_BRK
-
-    poc_graphs = [
-        gcc.make_graph(page_poc, "Curve plot",
-                       [(POC_BB, "m:u:A", gcc.C_BLUE),
-                        (POC_BB, "m:u:B", gcc.C_RED),
-                        (POC_BB, "m:u:C", gcc.C_GREEN)],
-                       row=0, col=0, x_refs=x_refs),
-        gcc.make_graph(page_poc, "Curve plot(1)",
-                       [(POC_BB, "m:u1", gcc.C_BLUE),
-                        (POC_BB, "m:u2", gcc.C_RED)],
-                       row=0, col=1, x_refs=x_refs),
-        gcc.make_graph(page_poc, "Curve plot(2)",
-                       [(_p_src, "m:Psum:bus1", gcc.C_TEAL),
-                        (_p_src, "m:Qsum:bus1", gcc.C_BLUE)],
-                       row=1, col=0, x_refs=x_refs),
-        gcc.make_graph(page_poc, "Curve plot(3)",
-                       [(_p_src, "m:i1P:bus1", gcc.C_TEAL),
-                        (_p_src, "m:i1Q:bus1", gcc.C_ORANGE),
-                        (_p_src, "m:i2Q:bus1", gcc.C_GREEN)],
-                       row=1, col=1, x_refs=x_refs),
-    ]
-
-    try:
-        page_poc.SetLayoutMode(2)
-        page_poc.numLayoutColumns = 2
-    except Exception:
-        pass
-
-    for _g in poc_graphs:
-        gcc.set_xrange(_g, x_min, x_max, app)
-
-    # GU pages — one per plant (2x2 grid each)
-    for page_name, (GU_BB, Inverter) in zip(gu_page_names(len(plants)), plants):
-        page_gu = desktop.GetPage(page_name, 1, "GrpPage")
-        page_gu.SetResults(elmRes)
-
-        gu_graphs = [
-            gcc.make_graph(page_gu, "Curve plot",
-                           [(GU_BB, "m:u:A", gcc.C_BLUE),
-                            (GU_BB, "m:u:B", gcc.C_RED),
-                            (GU_BB, "m:u:C", gcc.C_GREEN)],
-                           row=0, col=0, x_refs=x_refs),
-            gcc.make_graph(page_gu, "Curve plot(1)",
-                           [(GU_BB, "m:u1", gcc.C_BLUE),
-                            (GU_BB, "m:u2", gcc.C_RED)],
-                           row=0, col=1, x_refs=x_refs),
-            gcc.make_graph(page_gu, "Curve plot(2)",
-                           [(Inverter, "m:Psum:bus1", gcc.C_TEAL),
-                            (Inverter, "m:Qsum:bus1", gcc.C_BLUE)],
-                           row=1, col=0, x_refs=x_refs),
-            gcc.make_graph(page_gu, "Curve plot(3)",
-                           [(Inverter, "m:i1P:bus1", gcc.C_TEAL),
-                            (Inverter, "m:i1Q:bus1", gcc.C_ORANGE),
-                            (Inverter, "m:i2Q:bus1", gcc.C_GREEN)],
-                           row=1, col=1, x_refs=x_refs),
+    def fill_page(page_name, bus, bus_name, src, src_name):
+        """2x2 page: phase voltages, sequence voltages, P/Q, currents."""
+        page = desktop.GetPage(page_name, 1, "GrpPage")
+        page.SetResults(elmRes)
+        graphs = [
+            graph(page, "Curve plot",
+                  [(bus, bus_name, "m:u:A", gcc.C_BLUE),
+                   (bus, bus_name, "m:u:B", gcc.C_RED),
+                   (bus, bus_name, "m:u:C", gcc.C_GREEN)], 0, 0),
+            graph(page, "Curve plot(1)",
+                  [(bus, bus_name, "m:u1", gcc.C_BLUE),
+                   (bus, bus_name, "m:u2", gcc.C_RED)], 0, 1),
+            graph(page, "Curve plot(2)",
+                  [(src, src_name, "m:Psum:bus1", gcc.C_TEAL),
+                   (src, src_name, "m:Qsum:bus1", gcc.C_BLUE)], 1, 0),
+            graph(page, "Curve plot(3)",
+                  [(src, src_name, "m:i1P:bus1", gcc.C_TEAL),
+                   (src, src_name, "m:i1Q:bus1", gcc.C_ORANGE),
+                   (src, src_name, "m:i2Q:bus1", gcc.C_GREEN)], 1, 1),
         ]
-
         try:
-            page_gu.SetLayoutMode(2)
-            page_gu.numLayoutColumns = 2
+            page.SetLayoutMode(2)
+            page.numLayoutColumns = 2
         except Exception:
             pass
+        for g in graphs:
+            gcc.set_xrange(g, x_min, x_max, app)
 
-        for _h in gu_graphs:
-            gcc.set_xrange(_h, x_min, x_max, app)
+    # POC page: busbar voltages + breaker power and currents
+    fill_page("POC", POC_BB, names["poc_busbar"], POC_BRK, names["poc_breaker"])
+
+    # GU pages — one per plant
+    for n, (page_name, (GU_BB, Inverter)) in enumerate(
+            zip(gu_page_names(len(plants)), plants), start=1):
+        fill_page(page_name, GU_BB, names[f"gu_busbar{n}"],
+                  Inverter, names[f"inverter{n}"])
 
     app.Rebuild(2)
 
@@ -802,7 +784,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.4 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.5 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -922,6 +904,7 @@ def _run(app):
     POC_BB   = refs["POC_BB"]
     POC_BRK  = refs["POC_BRK"]
     plants   = refs["plants"]
+    plot_names = gcc.plot_label_names(cfg)
     record_vars = gcc.record_vars_frt(elem_cfg)
     Ext_grid = refs["Ext_grid"]
     SC       = refs["SC"]
@@ -1094,7 +1077,7 @@ def _run(app):
                 # E. Plot pages
                 # --------------------------------------------------------------
                 setup_plot_pages(app, sc_cfg, recovery_time_s,
-                                 POC_BB, POC_BRK, plants)
+                                 POC_BB, POC_BRK, plants, plot_names)
                 app.PrintPlain("    Plot pages : POC, "
                                + ", ".join(gu_page_names(len(plants)))
                                + " — configured.")
@@ -1199,6 +1182,14 @@ def _run(app):
                 app.GetActiveStudyCase().Deactivate()
             except Exception:
                 pass
+
+    if gcc.LABEL_ERRORS:
+        app.PrintWarn(
+            f"\nCurve legend labels could not be set ({len(gcc.LABEL_ERRORS)} "
+            f"plot(s)), default PowerFactory labels are shown. First error: "
+            f"{gcc.LABEL_ERRORS[0]}\nCheck gcc_common.CURVE_LABEL_ATTR "
+            f"('{gcc.CURVE_LABEL_ATTR}') against the 'Label' column of a "
+            f"plot's data series in this PowerFactory version.")
 
     # --------------------------------------------------------------------------
     # 7.10b  TASK AUTOMATION — populate, and execute if requested
@@ -1314,7 +1305,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.4",
+            "script_version": "5.5",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
