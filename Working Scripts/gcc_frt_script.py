@@ -770,6 +770,34 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
 # 7.  MAIN
 # ==============================================================================
 
+CONFIG_SECTIONS = ("project", "plant", "grid_code", "elements", "results",
+                   "simulation")
+
+
+def check_config_sections(cfg, config_path):
+    """
+    Clear error if a required top-level section is missing from the project
+    config — usually an indentation slip (a section name must start in
+    column 1) or a section that was deleted/commented out while editing.
+    """
+    if not isinstance(cfg, dict):
+        raise RuntimeError(f"Project config is empty or not a YAML mapping:\n"
+                           f"  {config_path}")
+    missing = [k for k in CONFIG_SECTIONS if not isinstance(cfg.get(k), dict)]
+    if missing:
+        nested = [f"'{k}' (inside '{parent}')" for parent, v in cfg.items()
+                  if isinstance(v, dict) for k in missing if k in v]
+        raise RuntimeError(
+            f"Section(s) {missing} not found at the top level of the project "
+            f"config:\n  {config_path}\n"
+            f"Top-level sections found: {list(cfg)}\n"
+            + (f"Found indented under another section: {', '.join(nested)} — "
+               f"remove the indentation so it starts in column 1.\n"
+               if nested else "")
+            + "Each section name (e.g. 'elements:') must start in column 1, "
+              "with its entries indented below it.")
+
+
 def _resolve_config_path():
     """CONFIG_FILE (file OR folder), else the config next to this script."""
     path = CONFIG_FILE or os.path.dirname(os.path.abspath(__file__))
@@ -794,6 +822,7 @@ def _run(app):
     config_path = _resolve_config_path()
     app.PrintPlain(f"\nLoading project config : {config_path}")
     cfg = gcc.load_yaml(config_path)
+    check_config_sections(cfg, config_path)
 
     proj_cfg  = cfg["project"]
     plant_cfg = cfg["plant"]
