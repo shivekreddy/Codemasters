@@ -141,25 +141,25 @@ RECORD_VARS_FRT = [
     ("poc_breaker", "m:i1P:bus1",  "POC Active Current [kA]"),
     ("poc_breaker", "m:i1Q:bus1",  "POC Reactive Current [kA]"),
     ("poc_breaker", "m:i2Q:bus1",  "POC Neg-Seq Reactive Current [kA]"),
-    # Inverter (generator convention — signs opposite to the breaker)
+    # Inverter (generator convention — signs opposite to the breaker).
+    # Lower-case i1P / i1Q / i2Q are in p.u. (PowerFactory: "i1P in p.u.").
+    # Must match everything plotted on the GU page(s).
     ("inverter",    "m:Psum:bus1", "Inverter Active Power [MW]"),
     ("inverter",    "m:Qsum:bus1", "Inverter Reactive Power [Mvar]"),
-    ("inverter",    "m:i1P:bus1",  "Inverter Active Current [kA]"),
-    ("inverter",    "m:i1Q:bus1",  "Inverter Reactive Current [kA]"),
+    ("inverter",    "m:i1P:bus1",  "Inverter Active Current [pu]"),
+    ("inverter",    "m:i1Q:bus1",  "Inverter Reactive Current [pu]"),
+    ("inverter",    "m:i2Q:bus1",  "Inverter Neg-Seq Reactive Current [pu]"),
 ]
 
-# Plant 2 of a two-plant model (elements.gu_busbar2 / inverter2). Only
-# recorded and exported when plant 2 is configured — see record_vars_frt().
+# Plant 2 of a two-plant model (elements.gu_busbar2 / inverter2): exactly the
+# plant 1 GU busbar and inverter variables, labelled "GU 2 ..." /
+# "Inverter 2 ...". Only recorded and exported when plant 2 is configured —
+# see record_vars_frt().
+_PLANT2_KEYS = {"gu_busbar": ("gu_busbar2", "GU ", "GU 2 "),
+                "inverter":  ("inverter2", "Inverter ", "Inverter 2 ")}
 RECORD_VARS_FRT_PLANT2 = [
-    ("gu_busbar2", "m:u:A",       "GU 2 Voltage A [pu]"),
-    ("gu_busbar2", "m:u:B",       "GU 2 Voltage B [pu]"),
-    ("gu_busbar2", "m:u:C",       "GU 2 Voltage C [pu]"),
-    ("gu_busbar2", "m:u1",        "GU 2 Pos-Seq Voltage [pu]"),
-    ("gu_busbar2", "m:u2",        "GU 2 Neg-Seq Voltage [pu]"),
-    ("inverter2",  "m:Psum:bus1", "Inverter 2 Active Power [MW]"),
-    ("inverter2",  "m:Qsum:bus1", "Inverter 2 Reactive Power [Mvar]"),
-    ("inverter2",  "m:i1P:bus1",  "Inverter 2 Active Current [kA]"),
-    ("inverter2",  "m:i1Q:bus1",  "Inverter 2 Reactive Current [kA]"),
+    (_PLANT2_KEYS[k][0], var, label.replace(_PLANT2_KEYS[k][1], _PLANT2_KEYS[k][2], 1))
+    for k, var, label in RECORD_VARS_FRT if k in _PLANT2_KEYS
 ]
 
 RECORD_VARS_FREQ = [
