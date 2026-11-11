@@ -11,7 +11,12 @@ Input: one folder per case, e.g. "FRT 1PH 0.05 Q0/", holding POC.csv,
 "GU Terminal 1.csv" (HVC) and "GU Terminal 2.csv" (Novar), as written by
 gcc_export_raw_results.py: time_s + 10 signals per file.
 
-Usage:
+Usage — from PowerFactory (ComPython):
+    set PF_CASES_FOLDER (and optionally the other PF_ settings) below, point a
+    ComPython object at this script and execute it. Output goes to the
+    PowerFactory output window, results.xlsx into the cases folder.
+
+Usage — command line (also used by the tests):
     python frt_check.py <folder with case folders> [--out results.xlsx]
                         [--plots] [--tf 10.0] [--tc 10.25]
 
@@ -31,8 +36,35 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+    import openpyxl  # noqa: F401  (needed to write results.xlsx)
+except ImportError as _exc:
+    raise ImportError(
+        f"frt_check.py needs pandas, numpy and openpyxl ({_exc}). Install them "
+        f"into the Python that runs this script:\n"
+        f'  "{os.path.join(sys.prefix, "python.exe")}" -m pip install pandas '
+        f"numpy openpyxl matplotlib pyyaml\n"
+        f"(Python in use: {sys.prefix})") from _exc
+
+
+# ==============================================================================
+# SETTINGS FOR RUNNING FROM POWERFACTORY (ComPython) — edit before executing
+# ==============================================================================
+# Folder holding the case folders ("FRT 1PH 0.05 Q0", ...), as written by
+# gcc_export_raw_results.py. A single case folder works too.
+PF_CASES_FOLDER = r"C:\Users\SHIRED\OneDrive - DNV\Projects\GCC Script Development\Codemasters-1\FRT_2026-11-11_13-56-23 (PPC Enabled)"
+
+# Excel output. None = results.xlsx inside PF_CASES_FOLDER
+PF_OUT_FILE = None
+
+# Ti,90 plots per case (PNG, in a "plots" folder next to the Excel file)
+PF_PLOTS = True
+
+# Event time overrides [s]. None = detect from the POC phase voltages
+PF_TF = None
+PF_TC = None
 
 
 # ==============================================================================
@@ -903,6 +935,12 @@ def console_summary(res: dict) -> str:
 # 7.  CLI
 # ==============================================================================
 
+# Output channel: print() on the command line, the PowerFactory output window
+# when run as a ComPython script (set in run_in_powerfactory).
+_say = print
+_warn = print
+
+
 def find_case_folders(root: str) -> list[str]:
     out = []
     for name in sorted(os.listdir(root)):
@@ -912,7 +950,44 @@ def find_case_folders(root: str) -> list[str]:
     return out
 
 
+def run(folder: str, out: str, plots: bool = False, tf: float | None = None,
+        tc: float | None = None, cfg: dict = CONFIG) -> int:
+    """Evaluate every case folder in `folder`, write `out`. Returns 0 / 1."""
+    folders = find_case_folders(folder)
+    if not folders and CASE_RE.search(os.path.basename(folder.rstrip("/\\"))):
+        folders = [folder]                       # a single case folder given
+    if not folders:
+        _warn(f"No case folders ('FRT <n>PH <uret> <Q>') found in {folder}")
+        return 1
+
+    warnings = grid_code_duration_warnings(cfg)
+    for w in warnings:
+        _warn(f"WARNING: {w}")
+
+    results = []
+    for case_folder in folders:
+        try:
+            res = evaluate_case(case_folder, cfg, tf, tc)
+        except Exception as exc:                 # one case never stops the others
+            _warn(f"ERROR {os.path.basename(case_folder)}: {exc}")
+            continue
+        results.append(res)
+        _say(console_summary(res))
+        if plots:
+            try:
+                plot_case(res, case_folder,
+                          os.path.join(os.path.dirname(os.path.abspath(out)), "plots"), cfg)
+            except Exception as exc:
+                _warn(f"   plot failed: {exc}")
+
+    if results:
+        write_excel(results, out, warnings, cfg)
+        _say(f"\nWritten: {out}  ({len(results)} case(s))")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Command line entry point."""
     ap = argparse.ArgumentParser(description="FRT / FFCI compliance checker")
     ap.add_argument("folder", help="folder containing the case folders")
     ap.add_argument("--out", default="results.xlsx")
@@ -920,38 +995,48 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tf", type=float, default=None, help="override t_f [s]")
     ap.add_argument("--tc", type=float, default=None, help="override t_c [s]")
     a = ap.parse_args(argv)
-
-    folders = find_case_folders(a.folder)
-    if not folders and CASE_RE.search(os.path.basename(a.folder.rstrip("/\\"))):
-        folders = [a.folder]                     # a single case folder given
-    if not folders:
-        print(f"No case folders ('FRT <n>PH <uret> <Q>') found in {a.folder}")
-        return 1
-
-    warnings = grid_code_duration_warnings(CONFIG)
-    for w in warnings:
-        print(f"WARNING: {w}")
-
-    results = []
-    for folder in folders:
-        try:
-            res = evaluate_case(folder, CONFIG, a.tf, a.tc)
-        except Exception as exc:                 # one case never stops the others
-            print(f"ERROR {os.path.basename(folder)}: {exc}")
-            continue
-        results.append(res)
-        print(console_summary(res))
-        if a.plots:
-            try:
-                plot_case(res, folder, os.path.join(os.path.dirname(os.path.abspath(a.out)), "plots"))
-            except Exception as exc:
-                print(f"   plot failed: {exc}")
-
-    if results:
-        write_excel(results, a.out, warnings)
-        print(f"\nWritten: {a.out}  ({len(results)} case(s))")
-    return 0
+    return run(a.folder, a.out, a.plots, a.tf, a.tc)
 
 
-if __name__ == "__main__":
+def powerfactory_app():
+    """The PowerFactory application when running inside PowerFactory, else None."""
+    try:
+        import powerfactory
+        return powerfactory.GetApplication()
+    except Exception:
+        return None
+
+
+def run_in_powerfactory(app) -> None:
+    """ComPython entry point: PF_ settings, output to the PF output window."""
+    global _say, _warn
+    _say, _warn = app.PrintPlain, app.PrintWarn
+    app.ClearOutputWindow()
+    out = PF_OUT_FILE or os.path.join(PF_CASES_FOLDER, "results.xlsx")
+    app.PrintPlain("=" * 72)
+    app.PrintPlain("  FRT / FFCI compliance check")
+    app.PrintPlain("=" * 72)
+    app.PrintPlain(f"  Cases  : {PF_CASES_FOLDER}")
+    app.PrintPlain(f"  Output : {out}" + ("   (+ plots)" if PF_PLOTS else ""))
+    app.PrintPlain(f"  Python : {sys.prefix}\n")
+    if not os.path.isdir(PF_CASES_FOLDER):
+        app.PrintError(f"Cases folder not found:\n  {PF_CASES_FOLDER}\n"
+                       "Set PF_CASES_FOLDER at the top of frt_check.py.")
+        return
+    try:
+        run(PF_CASES_FOLDER, out, PF_PLOTS, PF_TF, PF_TC)
+    except PermissionError as exc:
+        app.PrintError(f"Could not write the output — is {os.path.basename(out)} "
+                       f"open in Excel? ({exc})")
+    except Exception as exc:
+        app.PrintError(f"FRT compliance check aborted: {exc}")
+        raise
+
+
+# Run from PowerFactory (ComPython) with the PF_ settings, or from the command
+# line with arguments. Importing the module (e.g. from the tests) runs nothing.
+_PF_APP = powerfactory_app()
+if _PF_APP is not None:
+    run_in_powerfactory(_PF_APP)
+elif __name__ == "__main__":
     sys.exit(main())
