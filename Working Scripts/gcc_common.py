@@ -167,6 +167,10 @@ RECORD_VARS_FREQ = [
     ("poc_busbar",  "m:u1",        "POC Pos-Seq Voltage [pu]"),
     ("poc_breaker", "m:Psum:bus1", "POC Active Power [MW]"),
     ("poc_breaker", "m:Qsum:bus1", "POC Reactive Power [Mvar]"),
+    # Other end of the (ideal) breaker: same power, generator oriented
+    # (export positive). Plotted by the frequency script.
+    ("poc_breaker", "m:Psum:bus2", "POC Active Power, export positive [MW]"),
+    ("poc_breaker", "m:Qsum:bus2", "POC Reactive Power, export positive [Mvar]"),
 ]
 
 
@@ -483,6 +487,30 @@ def set_xrange(plot, x_min, x_max, app):
             app.PrintWarn(f"    x-Axis PltAxis not found on '{plot.loc_name}'")
     except Exception as e:
         app.PrintWarn(f"    Could not set x-axis range on '{plot.loc_name}': {e}")
+
+
+def set_yrange(plot, y_min, y_max, app, axis_name="y-Axis"):
+    """
+    Set the (left) y-axis range of a PltLinebarplot, like set_xrange: the
+    y-axis is a PltAxis child; rangeMax is set before rangeMin.
+    """
+    try:
+        axes = plot.GetContents(f"{axis_name}.PltAxis")
+        if not axes:
+            axes = [a for a in plot.GetContents("*.PltAxis")
+                    if not a.loc_name.lower().startswith("x")]
+        if not axes:
+            app.PrintWarn(f"    y-Axis PltAxis not found on '{plot.loc_name}'")
+            return
+        ax = axes[0]
+        ax.rangeMax = float(y_max)
+        ax.rangeMin = float(y_min)
+        try:
+            ax.iAutoScale = 0
+        except Exception:
+            pass
+    except Exception as e:
+        app.PrintWarn(f"    Could not set y-axis range on '{plot.loc_name}': {e}")
 
 
 def add_x_ref_line(plot, time_s, color=C_REF):

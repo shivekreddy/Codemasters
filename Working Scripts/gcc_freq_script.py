@@ -39,7 +39,22 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 2.1
+# Version : 3.0
+#
+# CHANGELOG v2.1 -> v3.0
+# ----------------------
+#   * The base case is copied AS IS (as in the FRT script). Per case the
+#     script only: switches the POC source to the frequency voltage source
+#     (external grid out of service), sets P = freq_p_factor x Pmax
+#     (default 70 %) and Q = 0, sets the stop time, adds the step events,
+#     recorded variables and plot pages. It no longer touches grid
+#     activation, load flow / RMS settings, controller modes, the U
+#     setpoint or the step size adaptation.
+#   * Stop time and plot x-range: simulation_timing.t_stop_s (330 s) for all
+#     cases and plots.
+#   * POC P and Q plotted export positive (breaker bus2 side), Plots 1-3.
+#   * Plot 2: frequency on the left axis with a fixed range per type
+#     (FREQ_Y_RANGE), active power on the right axis.
 
 import sys
 import os
@@ -69,13 +84,31 @@ CONFIG_FILE = None
 # Name of the base study case to copy when 'elements.base_case' is not set.
 BASE_CASE_NAME = "GCC_BaseCase"
 
-# Maximum adaptive timestep [s] — hang protection. With iopt_adapt=1 PF may
-# also GROW the step up to this value in quiet periods, which speeds up the
-# long (400+ s) frequency runs considerably. 0.1 s still resolves the
-# multi-second droop/PPC response with ample margin.
-# NOTE: this makes the result time base NON-UNIFORM — the evaluation tool
-# must interpolate on time, never index by row.
-DTGRD_MAX_S = 0.1
+# Active power setpoint of every frequency case = this x Pmax, unless
+# simulation.freq_p_factor is set in the project config.
+FREQ_P_FACTOR_DEFAULT = 0.70
+
+# POC power plotted from the breaker's bus2 side: the same power as bus1 but
+# export positive (bus1 is load oriented, so export shows negative).
+POC_P_VAR = "m:Psum:bus2"
+POC_Q_VAR = "m:Qsum:bus2"
+
+# Plot 2 frequency axis (left) range per simulation type [Hz]
+FREQ_Y_RANGE = {
+    "LFSMO": (49.5, 52.0),
+    "LFSMU": (49.5, 50.5),
+    "FSM":   (49.5, 50.5),
+}
+
+# Plot 2 puts active power on a second (right) y-axis. PowerFactory
+# attribute of the data series that assigns a curve to a y-axis, and the
+# value for the right axis. Check in PowerFactory by hovering over that
+# column in the plot's data series table; if setting it fails, the script
+# warns once and active power stays on the left axis.
+CURVE_AXIS_ATTR  = "curveTableAxis"
+CURVE_AXIS_LEFT  = 0
+CURVE_AXIS_RIGHT = 1
+_AXIS_ERRORS = []
 
 
 # ==============================================================================
@@ -191,22 +224,13 @@ def get_freq_config(gc_cfg):
 
 
 # ==============================================================================
-# 3.  RMS SIMULATION CONFIGURATION  (frequency-specific — stays in this script)
+# 3.  SIMULATION STOP TIME — the only simulation setting the script changes
+#     (everything else is taken from the copied base case)
 # ==============================================================================
 
-def configure_rms(comInc, comSim, sim_cfg, t_start_s, t_stop_s):
-    """
-    Configure ComInc and ComSim for frequency RMS simulation (balanced).
-    t_start_s and t_stop_s are passed in from the YAML simulation_timing block.
-    """
-    comInc.iopt_sim   = "rms"
-    comInc.iopt_show  = 0
-    comInc.iopt_adapt = 0
-    comInc.dtgrd      = float(sim_cfg.get("integration_step_s", 0.01))
-    comInc.tstart     = t_start_s
-    comInc.iopt_lt    = int(sim_cfg.get("a_stable_integration", 1))
-    comInc.iopt_net   = "sym"    # balanced — frequency studies use positive sequence
-    comSim.tstop      = t_stop_s
+def set_stop_time(app, t_stop_s):
+    """ComSim stop time of the active case = simulation_timing.t_stop_s."""
+    app.GetFromStudyCase("ComSim").tstop = float(t_stop_s)
 
 
 # ==============================================================================
@@ -257,11 +281,21 @@ def create_step_events(app, sim_type, freq_voltage_source, step_events):
 
 # ==============================================================================
 # 5.  PLOT PAGE SETUP
-#     x-range for Step variants is derived from the YAML step sequence:
-#       [t_start, min(t_stop, last_step + step_duration)]
-#     Ramp variants use the full [t_start, t_stop] window (their events live
-#     in an external file, so the sequence end is unknown to this script).
+#     x-range for every case and plot: [t_start, t_stop] (330 s).
+#     POC P and Q are plotted export positive (POC_P_VAR / POC_Q_VAR).
 # ==============================================================================
+
+def put_on_right_axis(plot, axes, app):
+    """
+    Assign the curves of `plot` to the left/right y-axis: axes is a list of
+    CURVE_AXIS_LEFT / CURVE_AXIS_RIGHT per curve. A failure is collected in
+    _AXIS_ERRORS (reported once) and leaves the curves on the left axis.
+    """
+    try:
+        setattr(plot.GetDataSeries(), CURVE_AXIS_ATTR, list(axes))
+    except Exception as e:
+        _AXIS_ERRORS.append(f"{plot.loc_name}: {e}")
+
 
 def setup_freq_plot_pages(app, sim_type, variant, POC_BB, POC_BRK,
                           tc, t_start_s, t_stop_s, step_dur_s):
@@ -273,15 +307,10 @@ def setup_freq_plot_pages(app, sim_type, variant, POC_BB, POC_BRK,
     plot_x_refs_s   = tc["plot_x_refs_s"]
     plot_zoom_ref_s = tc["plot_zoom_ref_s"]
 
-    if variant == "Step":
-        x_min = t_start_s
-        x_max = min(t_stop_s, tc["last_step_s"] + step_dur_s)
-    else:
-        x_min = t_start_s
-        x_max = t_stop_s
+    x_min, x_max = t_start_s, t_stop_s
 
-    p_elm, p_var = POC_BRK, "m:Psum:bus1"
-    q_elm, q_var = POC_BRK, "m:Qsum:bus1"
+    p_elm, p_var = POC_BRK, POC_P_VAR
+    q_elm, q_var = POC_BRK, POC_Q_VAR
 
     prefix = sim_type   # 'FSM', 'LFSMO', or 'LFSMU'
 
@@ -313,7 +342,8 @@ def setup_freq_plot_pages(app, sim_type, variant, POC_BB, POC_BRK,
     app.Rebuild(2)
 
     # ------------------------------------------------------------------
-    # PAGE 2 — Active power with labels
+    # PAGE 2 — Active power with labels:
+    #   frequency on the left axis (fixed range per type), P on the right
     # ------------------------------------------------------------------
     page2_name = f"{prefix} Plot 2 - Active power with labels"
     page2      = desktop.GetPage(page2_name, 1, "GrpPage")
@@ -324,8 +354,10 @@ def setup_freq_plot_pages(app, sim_type, variant, POC_BB, POC_BRK,
         (p_elm,   p_var,   gcc.C_P),
     ], x_refs=plot_x_refs_s)
 
+    put_on_right_axis(plot2, [CURVE_AXIS_LEFT, CURVE_AXIS_RIGHT], app)
     gcc.set_xrange(plot2, x_min, x_max, app)
-    plot2.DoAutoScaleY()
+    f_lo, f_hi = FREQ_Y_RANGE.get(sim_type, (49.5, 50.5))
+    gcc.set_yrange(plot2, f_lo, f_hi, app)
     app.Rebuild(2)
 
     # ------------------------------------------------------------------
@@ -495,7 +527,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC Frequency Simulation Script v2.0 — starting")
+    app.PrintPlain("  GCC Frequency Simulation Script v3.0 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -539,6 +571,12 @@ def _run(app):
     setup_only   = bool(sim_cfg.get("setup_only",   True))
     run_sim_only = bool(sim_cfg.get("run_sim_only", False))
     app.PrintPlain(f"Flags    : setup_only={setup_only}  run_sim_only={run_sim_only}")
+    p_factor = float(sim_cfg.get("freq_p_factor", FREQ_P_FACTOR_DEFAULT))
+    if not 0.0 < p_factor <= 1.0:
+        raise RuntimeError(f"simulation.freq_p_factor must be between 0 and 1, "
+                           f"got {p_factor}.")
+    app.PrintPlain(f"P setpoint: {p_factor:g} x Pmax = {p_factor * Pmax:.2f} MW, "
+                   f"Q = 0 Mvar (all frequency cases)")
 
     # --------------------------------------------------------------------------
     # 7.4  Read all frequency simulation config from grid code YAML
@@ -574,7 +612,7 @@ def _run(app):
                 "t_stop":      t_stop_s,
                 "step_duration_s": step_dur_s,
                 "step_events": (tc["step_events"] if variant == "Step" else None),
-                "psetp":       Pmax,
+                "psetp":       p_factor * Pmax,
                 "qsetp":       0.0,
                 "usetp":       1.0,
             })
@@ -620,30 +658,26 @@ def _run(app):
         app.PrintPlain(f"\nRun folder : '{run_tag}'")
 
     # --------------------------------------------------------------------------
-    # 7.7  Operating point, written into the ACTIVE case scenario per case
-    #      (never before a case scenario is active, so the base case's own
-    #      scenario is never modified)
+    # 7.7  What the script changes on each copied case (besides events,
+    #      recorded variables and plots), always in the case's OWN scenario
+    #      (a copy of the base case's scenario), so the base case is never
+    #      modified:
+    #        * POC source: frequency voltage source in service, external
+    #          grid out of service (the steps act on the source's F0Hz)
+    #        * P setpoint = freq_p_factor x Pmax, Q setpoint = 0
+    #        * simulation stop time (set_stop_time)
     # --------------------------------------------------------------------------
     def apply_operating_point(sc_cfg_item):
-        # Controllers in service and in the correct control mode
-        SC.outserv  = 0
-        PFC.outserv = 0
-        SC.i_ctrl   = 1    # Reactive Power Control
-        SC.qu_char  = 0    # Const. Q
-        PFC.i_net   = 1    # Power-Frequency Control
-
-        # The frequency voltage source is the POC source for these studies
-        # (the frequency steps act on its F0Hz); external grid out of service
         others_off = gcc.use_voltage_source(app, Ext_grid, POC_BB,
                                             freq_volt_source)
         app.PrintPlain(
             f"    Source   : '{freq_volt_source.loc_name}' in service; "
             f"out of service: {[Ext_grid.loc_name] + others_off}"
         )
-
-        PFC.psetp      = sc_cfg_item["psetp"]
-        SC.qsetp       = sc_cfg_item["qsetp"]
-        Ext_grid.usetp = sc_cfg_item["usetp"]
+        PFC.psetp = sc_cfg_item["psetp"]
+        SC.qsetp  = sc_cfg_item["qsetp"]
+        app.PrintPlain(f"    Setpoints: P = {sc_cfg_item['psetp']:.2f} MW, "
+                       f"Q = {sc_cfg_item['qsetp']:.2f} Mvar")
 
     # --------------------------------------------------------------------------
     # 7.8  Create operational scenarios up front (one per study case)
@@ -711,38 +745,19 @@ def _run(app):
                     app.PrintPlain(f"    [copied] '{base_case.loc_name}' -> '{sc_name}'")
 
                 # --------------------------------------------------------------
-                # B. Activate case + scenario, THEN write setpoints, THEN save
-                #    the scenario so the case is self-contained.
+                # B. Activate the case and link its own scenario (a copy of
+                #    the base case's scenario, so all operational data is
+                #    kept and the base case's scenario is never written to)
                 # --------------------------------------------------------------
                 study_case.Activate()
-                gcc.activate_grid(app, netdat_folder, Ext_grid.loc_name)
-
                 opscen = opscen_objects.get(sc_name)
                 if opscen:
                     opscen.Activate()
                 else:
                     app.PrintWarn(f"    Op scenario '{sc_name}' not found — skipping link.")
 
-                apply_operating_point(sc_cfg_item)
-
-                if opscen:
-                    try:
-                        opscen.Save()
-                    except Exception as e:
-                        app.PrintWarn(f"    Could not save op scenario: {e}")
-
                 # --------------------------------------------------------------
-                # C. Load flow + RMS settings (timing from YAML)
-                # --------------------------------------------------------------
-                ldf    = app.GetFromStudyCase("ComLDF")
-                comInc = app.GetFromStudyCase("ComInc")
-                comSim = app.GetFromStudyCase("ComSim")
-
-                gcc.configure_loadflow(ldf)
-                configure_rms(comInc, comSim, sim_cfg, t_start_s, t_stop_s)
-
-                # --------------------------------------------------------------
-                # D. Step events — only for Step variant; Ramp uses external .txt
+                # C. Step events — only for Step variant; Ramp uses external .txt
                 # --------------------------------------------------------------
                 if variant == "Step":
                     create_step_events(
@@ -755,25 +770,41 @@ def _run(app):
                     app.PrintPlain("    Ramp variant — events loaded from external .txt file.")
 
                 # --------------------------------------------------------------
-                # E. Record variables — everything plotted or evaluated
+                # D. Record variables (added to the case's result object; no
+                #    calculation is run and no setting is changed)
                 # --------------------------------------------------------------
-                comInc.Execute()
-                elmRes = comInc.p_resvar
-                add_recorded_results(elmRes, elm_objects, app)
+                elmRes = app.GetFromStudyCase("ComInc").p_resvar
+                if elmRes is None:
+                    app.PrintWarn("    No result object set in the case's "
+                                  "ComInc — variables not recorded.")
+                else:
+                    add_recorded_results(elmRes, elm_objects, app)
 
                 # --------------------------------------------------------------
-                # F. Plot pages (x-ranges derived from YAML step sequence)
+                # E. Plot pages (x-range: t_start .. t_stop)
                 # --------------------------------------------------------------
                 setup_freq_plot_pages(
                     app, sim_type, variant, POC_BB, POC_BRK,
                     tc, t_start_s, t_stop_s, step_dur_s,
                 )
 
+                # --------------------------------------------------------------
+                # F. Source, setpoints and stop time, then save the case
+                #    scenario so the case is self-contained
+                # --------------------------------------------------------------
+                apply_operating_point(sc_cfg_item)
+                set_stop_time(app, t_stop_s)
+                if opscen:
+                    try:
+                        opscen.Save()
+                    except Exception as e:
+                        app.PrintWarn(f"    Could not save op scenario: {e}")
+
             else:
                 # --------------------------------------------------------------
                 # run_sim_only — activate the existing study case from the run
                 # folder resolved in 7.6 (NEVER recursively from the root),
-                # then RE-APPLY the setpoints for this case.
+                # then RE-APPLY the source, setpoints and stop time.
                 # --------------------------------------------------------------
                 existing = sc_folder.GetContents(f"{sc_name}.IntCase")
                 if not existing:
@@ -782,18 +813,14 @@ def _run(app):
                         f"Re-run with setup_only=True to recreate study cases."
                     )
                 existing[0].Activate()
-                gcc.activate_grid(app, netdat_folder, Ext_grid.loc_name)
-
                 apply_operating_point(sc_cfg_item)
+                set_stop_time(app, t_stop_s)
 
             # ------------------------------------------------------------------
             # G. Run simulation (sequential, main thread only)
             #
-            #   Hang protection: iopt_adapt=1 with a dtgrd_max cap forces PF
-            #   to abandon a diverging case instead of shrinking the timestep
-            #   indefinitely — and lets it stretch the step in quiet periods
-            #   of these long runs. Result time base is therefore NON-UNIFORM:
-            #   the evaluation tool must interpolate on time.
+            #   The base case's own solver settings are used (step size,
+            #   step size adaptation, ...) — the script does not change them.
             #
             #   Failure layers (same as FRT script):
             #     1. ComInc non-zero return : initial conditions failed
@@ -804,9 +831,6 @@ def _run(app):
                 app.PrintPlain("    Running simulation...")
                 comInc = app.GetFromStudyCase("ComInc")
                 comSim = app.GetFromStudyCase("ComSim")
-
-                comInc.iopt_adapt = 1
-                comInc.dtgrd_max  = DTGRD_MAX_S
 
                 err_inc = comInc.Execute()
                 if err_inc:
@@ -853,6 +877,14 @@ def _run(app):
             except Exception:
                 pass
 
+    if _AXIS_ERRORS:
+        app.PrintWarn(
+            f"\nPlot 2: active power could not be put on the right y-axis "
+            f"({len(_AXIS_ERRORS)} plot(s)); it stays on the left axis. First "
+            f"error: {_AXIS_ERRORS[0]}\nCheck CURVE_AXIS_ATTR "
+            f"('{CURVE_AXIS_ATTR}') against the y-axis column of a plot's "
+            f"data series in this PowerFactory version.")
+
     # --------------------------------------------------------------------------
     # 7.10  Results export
     #        Handled EXCLUSIVELY by gcc_export_freq.py
@@ -884,7 +916,8 @@ def _run(app):
         extra       = {
             "setup_only":     setup_only,
             "run_sim_only":   run_sim_only,
-            "script_version": "2.0",
+            "script_version": "3.0",
+            "p_factor":       p_factor,
             "simulation_timing": {
                 "t_start_s":       t_start_s,
                 "t_stop_s":        t_stop_s,

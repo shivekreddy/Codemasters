@@ -200,7 +200,7 @@ requirements_type_2:
     # --------------------------------------------------------------------------
     simulation_timing:
       t_start_s:        0.0    # Simulation start time [s]
-      t_stop_s:       420.0    # Simulation stop time [s] — covers FSM last step at 300 s + 30 s hold + margin
+      t_stop_s:       330.0    # Simulation stop time [s] — FSM last step at 300 s + 30 s hold
       step_duration_s:  30.0   # Duration of each frequency step [s]
 
     lfsm_o:

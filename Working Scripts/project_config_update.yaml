@@ -137,6 +137,9 @@ simulation:
   # plant: P = 9.3 MW, Q = 0 / +/-3.3 Mvar).
   frt_reduced_p:        1       # 1 = on, 0 = off (P as set in the base case)
   frt_reduced_p_factor: 0.93    # P = factor x Pmax for every FRT case
+
+  # Frequency cases (FSM / LFSM-O / LFSM-U): P setpoint = factor x Pmax, Q = 0
+  freq_p_factor:        0.70
   a_stable_integration: 1       # 0=per element, 1=all elements, 2=per element+composite
 
 
