@@ -787,7 +787,8 @@ def report_rows(results: list[dict], fault: str, key: str, seq: str) -> list[lis
     """
     One report table: rows of (value, number format) for location `key`
     (POC / GU1 / GU2) and sequence pos / neg. GU tables add Ti,90 and Ts [ms]:
-    "N/A" where FFCI does not apply (residual voltage <= 0.15 pu).
+    "N/A" where FFCI does not apply (residual voltage <= 0.15 pu); Ts "-" when
+    it equals Ti,90 (report convention), a number only where they differ.
     """
     u, i, k = ("U1", "Iq1", "k1") if seq == "pos" else ("U2", "Iq2", "k2")
     rows = []
@@ -802,12 +803,16 @@ def report_rows(results: list[dict], fault: str, key: str, seq: str) -> list[lis
         row = [(res["case"].name, None), num(r[f"{u}_pre"]), num(r[f"{u}_fault"]),
                num(r[f"{i}_pre"]), num(r[f"{i}_fault"]), kc]
         if key != "POC":
-            for q in ("ti90", "ts"):
-                v = r.get(f"{q}_{seq}_ms")
-                if not r.get("ffci_applies"):
-                    row.append(("N/A", None))
-                else:
-                    row.append(("-", None) if v is None else (_rh(v, 0), "0"))
+            ti, ts = r.get(f"ti90_{seq}_ms"), r.get(f"ts_{seq}_ms")
+            if not r.get("ffci_applies"):
+                row += [("N/A", None), ("N/A", None)]
+            else:
+                row.append(("-", None) if ti is None else (_rh(ti, 0), "0"))
+                # report convention: "-" when Ts = Ti,90 (rose straight into
+                # the band and stayed there); a number only where they differ
+                same = ("within band after rise" in (r.get(f"ti_ts_{seq}_notes") or "")
+                        or (ti is not None and ts is not None and _rh(ti, 0) == _rh(ts, 0)))
+                row.append(("-", None) if ts is None or same else (_rh(ts, 0), "0"))
         rows.append(row)
     return rows
 
