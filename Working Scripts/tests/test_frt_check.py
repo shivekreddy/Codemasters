@@ -293,5 +293,6 @@ def test_report_tables_layout(tmp_path):
     titles = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)
               if str(ws.cell(r, 1).value or "").endswith((")", "POC"))]
     assert titles[0] == "Positive-sequence results for the 1-phase faults at the POC"
-    assert [c.value for c in ws[2]] == fc.REPORT_HEAD_POC
+    assert [c.value for c in ws[2]][:len(fc.REPORT_HEAD_POC)] == fc.REPORT_HEAD_POC
+    assert ws.cell(2, len(fc.REPORT_HEAD_POC) + 1).value is None
     assert ws.cell(3, 1).value == "1P-5U-Q0" and ws.cell(3, 2).number_format == "0.00"
