@@ -29,14 +29,14 @@
 #   Plot 3 — Active power zoomed: same as Plot 2 + one extra zoomed ref line
 #
 # Usage:
-#   1. Edit project_config.yaml for your project
-#   2. Set CONFIG_FILE below — or leave it as None to use the
-#      project_config.yaml sitting NEXT TO this script
+#   1. Edit project_config_update.yaml in Working Scripts for your project
+#   2. Leave CONFIG_FILE below as None to use that config (one folder up),
+#      or set it to another config file
 #   3. Point a ComPython object at this file and run from PowerFactory
 #
 # Dependencies:
 #   PyYAML         — "<PF Python>\python.exe" -m pip install pyyaml
-#   gcc_common.py  — must sit in the SAME FOLDER as this script
+#   gcc_common.py  — in Working Scripts (one folder up from this script)
 #
 # Author  : GCC Automation Team
 # Version : 3.2

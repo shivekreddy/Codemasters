@@ -22,7 +22,7 @@
 #   3. Point a ComPython object at this script and run it from PowerFactory
 #   4. Re-run the FRT simulations (setup_only: false, run_sim_only: true)
 #
-# Dependencies: gcc_common.py in the same folder as this script.
+# Dependencies: gcc_common.py in Working Scripts (one folder up).
 # ==============================================================================
 
 import sys

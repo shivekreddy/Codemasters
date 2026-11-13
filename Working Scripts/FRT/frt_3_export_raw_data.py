@@ -30,7 +30,7 @@
 # in this script.
 #
 # Usage: point a ComPython object at this script and run it from PowerFactory.
-# Dependencies: PyYAML, gcc_common.py in the same folder.
+# Dependencies: PyYAML, gcc_common.py in Working Scripts (one folder up).
 # ==============================================================================
 
 import os

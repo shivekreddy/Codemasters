@@ -7,18 +7,19 @@
 #   2. Creates operational scenarios and copies GCC_BaseCase for each case
 #   3. Writes setpoints, fault events, RMS settings, and plot pages
 #   4. Runs all simulations (if setup_only = false)
-#   5. Exports results to a timestamped CSV + JSON run manifest
+#   5. Writes a JSON run manifest to <paths.root>\Run Manifests
+#      (results: FRT\frt_3_export_raw_data.py)
 #
 # Usage:
-#   1. Edit project_config.yaml for your project (plant data, element names,
-#      grid code file path, output folder)
-#   2. Set CONFIG_FILE below — or leave it as None to use the
-#      project_config.yaml sitting NEXT TO this script
+#   1. Edit project_config_update.yaml in Working Scripts (plant data,
+#      element names, grid code file, paths.root)
+#   2. Leave CONFIG_FILE below as None to use that config (one folder up),
+#      or set it to another config file
 #   3. Point a ComPython object at this script and run from PowerFactory
 #
 # Dependencies:
 #   PyYAML         — "<PF Python>\python.exe" -m pip install pyyaml
-#   gcc_common.py  — must sit in the SAME FOLDER as this script
+#   gcc_common.py  — in Working Scripts (one folder up from this script)
 #
 # Author  : GCC Automation Team
 # Version : 5.8
