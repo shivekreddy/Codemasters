@@ -80,6 +80,7 @@ CONFIG: dict = {
     "P_min_reg_MW": 0.0,             # minimum regulating level (never binds here)
     "P_avail_MW": 189.6,             # plant limit (limit_power)
     "pref_basis": "relative",        # NBNL 4.2.1-4.2.3: PPM Pref = actual power
+    "ramp_rate_Hz_per_min": 0.2,     # ramp tests (overview table: % Pref/min)
     "error_limit_pct": 5.0,
     "ti_justify_s": 2.0,             # NBNL: initial delay > 2 s needs justification
     "ts_limit_s": {"LFSM-O": 20.0, "LFSM-U": 30.0, "FSM": 30.0},
@@ -780,19 +781,207 @@ def flags_sheet(results: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["Case", "Event", "Flag"])
 
 
+# ------------------------------------------------------------------------------
+# Report-ready tables (DNV 25-1670 Rev. 2 layout). Units are in the cell number
+# format, so a copy into Word shows "50.0 Hz", "43.71 MW (Pref, FSM)", "-4% Pref",
+# "0.4 s" while the cells stay numbers. Values are rounded as in the report.
+# ------------------------------------------------------------------------------
+HEADER_FILL = "9BD7F0"                       # header colour of the report tables
+OVERVIEW_HEAD = ["From freq.", "To freq.", "Delta freq.", "From power", "To power", "Delta power"]
+RESULTS_HEAD = ["From freq.", "To freq.", "P-Calculated", "P-Simulated", "Error", "Ti", "Ts"]
+INSENS_HEAD = ["From freq.", "To freq.", "f - fn", "Test", "P full droop", "P-Simulated",
+               "dP vs P0", "% of full droop", "Result"]
+
+
+def _rh(x: float, n: int = 0) -> float:
+    """
+    Round half up as Excel shows it: first to 12 significant digits (float
+    noise such as 45.53499999999999 is 45.535), then half up (45.535 -> 45.54;
+    Python's round gives 45.53).
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+    return float(Decimal(f"{float(x):.12g}").quantize(Decimal(1).scaleb(-n), rounding=ROUND_HALF_UP))
+
+
+def _dec(x: float, n_max: int = 3) -> int:
+    """Decimals needed to show x (1 at least, n_max at most): 50.0 -> 1, 50.012 -> 3."""
+    for n in range(1, n_max + 1):
+        if abs(x * 10 ** n - round(x * 10 ** n)) < 1e-6:
+            return n
+    return n_max
+
+
+def _num(n: int) -> str:
+    return "0" + ("." + "0" * n if n else "")
+
+
+def _signed(n: int, unit: str, pct: bool = False) -> str:
+    """Excel format '+0.0" Hz";-0.0" Hz";0.0" Hz"' (pct: value shown x 100 with %)."""
+    b = _num(n) + ("%" if pct else "")
+    u = f'" {unit}"' if unit else ""
+    return f"+{b}{u};-{b}{u};{b}{u}"
+
+
+def pref_regime(f_from: float, f_to: float, mode: str, cfg: dict = CONFIG) -> str | None:
+    """Which Pref a step uses: 'LFSM-O' / 'LFSM-U' beyond the thresholds, 'FSM' in the band (FSM case only)."""
+    if max(f_from, f_to) > cfg["lfsm_o_threshold_Hz"] + 1e-9:
+        return "LFSM-O"
+    if min(f_from, f_to) < cfg["lfsm_u_threshold_Hz"] - 1e-9:
+        return "LFSM-U"
+    return "FSM" if fsm_active(mode) else None
+
+
+def overview_cells(res: dict, cfg: dict = CONFIG, ramp: bool = False) -> list[list]:
+    """
+    DNV 25-1670 Tables 4-2 / 4-5 / 4-8 as (value, number format) cells. From
+    power carries "(Pref, ...)" where a new Pref applies; Delta power in % of
+    that Pref (ramps: % Pref/min at the configured ramp rate).
+    """
+    rows, last = [], None
+    pr = pref_values(res["P0"], res["mode"], cfg)
+    rr = cfg.get("ramp_rate_Hz_per_min", 0.2)
+    for s in res["steps"]:
+        reg = pref_regime(s["f_from"], s["f_to"], res["mode"], cfg)
+        pref = {"LFSM-O": pr["O"], "LFSM-U": pr["U"]}.get(reg, res["P0"])
+        tag = f" (Pref, {reg})" if reg and reg != last else ""
+        last = reg
+        fd = max(_dec(s["f_from"]), _dec(s["f_to"]))
+        if ramp:
+            d_f = (math.copysign(rr, s["df_Hz"]), _signed(1, "Hz/min"))
+            dp = 0.0 if s["threshold_step"] else -math.copysign(rr, s["df_Hz"]) / cfg["fn_Hz"] / cfg["droop"]
+            d_p = (_rh(dp, 4), _signed(0 if abs(dp * 100 - _rh(dp * 100)) < 1e-6 else 1, "Pref/min", True))
+        else:
+            d_f = (_rh(s["df_Hz"], fd), _signed(_dec(s["df_Hz"]), "Hz"))
+            dp = s["dP_expected"] / pref
+            d_p = (_rh(dp, 4), _signed(0 if abs(dp * 100 - _rh(dp * 100)) < 1e-6 else 1, "Pref", True))
+        rows.append([(s["f_from"], _num(fd) + '" Hz"'), (s["f_to"], _num(fd) + '" Hz"'), d_f,
+                     (_rh(s["P_calc_from"], 2), '0.00" MW' + tag + '"'),
+                     (_rh(s["P_calc"], 2), '0.00" MW"'), d_p])
+    return rows
+
+
+def results_cells(res: dict) -> list[list]:
+    """DNV 25-1670 Tables 4-3 / 4-6 / 4-9 as (value, number format) cells."""
+    rows = []
+    for s in res["steps"]:
+        fd = max(_dec(s["f_from"]), _dec(s["f_to"]))
+
+        def tt(x):
+            if s["threshold_step"]:
+                return ("-", None)
+            return ("not settled", None) if x is None else (_rh(x, 1), '0.0" s"')
+        err = ("-", None) if s["error_pct"] is None else (_rh(s["error_pct"], 3), '0.000" %"')
+        rows.append([(s["f_from"], _num(fd) + '" Hz"'), (s["f_to"], _num(fd) + '" Hz"'),
+                     (_rh(s["P_calc"], 2), '0.00" MW"'), (_rh(s["P_sim"], 2), '0.00" MW"'),
+                     err, tt(s["Ti_s"]), tt(s["Ts_s"])])
+    return rows
+
+
+def insens_cells(res: dict) -> list[list]:
+    rows = []
+    for s in res["insens"]:
+        pct = s["pct_of_full_droop"]
+        rows.append([(s["f_from"], '0.000" Hz"'), (s["f_to"], '0.000" Hz"'),
+                     (_rh(s["df_from_fn_mHz"], 1), _signed(0, "mHz")), (s["test"], None),
+                     (_rh(s["P_full_droop"], 2), '0.00" MW"'), (_rh(s["P_sim"], 2), '0.00" MW"'),
+                     (_rh(s["dP_sim_vs_P0"], 3), _signed(3, "MW")),
+                     ("-", None) if pct is None else (_rh(pct, 1), '0.0" %"'),
+                     ("pass" if s["pass"] else "FAIL", None)])
+    return rows
+
+
+def _write_table(ws, r0: int, title: str, head: list[str], body: list,
+                 widths: dict | None = None) -> int:
+    """Title, blue header row, body rows (cells or ('section', text)). Returns the next free row."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    thin = Side(style="thin", color="000000")
+    ws.cell(r0, 1, title).font = Font(bold=True)
+    r = r0 + 1
+    for c, h in enumerate(head, 1):
+        cell = ws.cell(r, c, h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = Border(top=thin, bottom=thin)
+    for row in body:
+        r += 1
+        if isinstance(row, tuple) and row[0] == "section":
+            ws.cell(r, 1, row[1]).font = Font(bold=True)
+            continue
+        for c, (v, fmt) in enumerate(row, 1):
+            cell = ws.cell(r, c, v)
+            if fmt:
+                cell.number_format = fmt
+            cell.alignment = Alignment(horizontal="center")
+    for c in range(1, len(head) + 1):
+        ws.cell(r, c).border = Border(bottom=thin)
+    return r + 2
+
+
+def _plain_sheet(ws, df: pd.DataFrame, widths: dict | None = None) -> None:
+    """A DataFrame with the blue bold header row, wrapped text, set column widths."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    for c, h in enumerate(df.columns, 1):
+        cell = ws.cell(1, c, h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    for r, row in enumerate(df.itertuples(index=False), 2):
+        for c, v in enumerate(row, 1):
+            if isinstance(v, float) and math.isnan(v):
+                v = None
+            ws.cell(r, c, v).alignment = Alignment(wrap_text=True, vertical="top")
+    for c, h in enumerate(df.columns, 1):
+        ws.column_dimensions[get_column_letter(c)].width = (widths or {}).get(h, 18)
+
+
 def write_excel(results: list[dict], path: str, manifest: dict, skipped: list[str],
                 cfg: dict = CONFIG) -> None:
-    with pd.ExcelWriter(path, engine="openpyxl") as xl:
-        info_sheet(results, manifest, skipped, cfg).to_excel(xl, sheet_name="info", index=False)
-        for r in results:
-            if r["mode"] == "FSM-INS":
-                insens_sheet(r).to_excel(xl, sheet_name="fsm_insensitivity", index=False)
-                continue
-            overview_sheet(r, cfg).to_excel(xl, sheet_name=f"overview_{r['mode']}", index=False)
-            steps_sheet(r).to_excel(xl, sheet_name=f"steps_{r['mode']}", index=False)
-        criteria_sheet(results, cfg).to_excel(xl, sheet_name="criteria", index=False)
-        raw_sheet(results).to_excel(xl, sheet_name="raw", index=False)
-        flags_sheet(results).to_excel(xl, sheet_name="flags", index=False)
+    """
+    One sheet per mode with the report tables (overview, then results), the
+    FSM insensitivity table, criteria (Table 4-11), and info / raw / flags.
+    """
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+    ramps = {MODES.get(str(e.get("type", "")).upper()) for e in manifest.get("cases", [])
+             if e.get("variant") == "Ramp" or "ramp" in str(e.get("name", "")).lower()}
+    wb = Workbook()
+    wb.remove(wb.active)
+    for r in sorted(results, key=lambda x: (MODE_ORDER + ("FSM-INS",)).index(x["mode"])):
+        m = r["mode"]
+        if m == "FSM-INS":
+            ws = wb.create_sheet("FSM insensitivity")
+            _write_table(ws, 1, "FSM insensitivity at the POC (controller insensitivity, "
+                         "FSM deadband 0 mHz)", INSENS_HEAD, insens_cells(r))
+            widths = [12, 12, 10, 30, 13, 13, 13, 15, 9]
+        else:
+            ws = wb.create_sheet(m)
+            body = [("section", "Simulation of frequency steps")] + overview_cells(r, cfg)
+            if m in ramps:
+                body += [("section", "Simulation of frequency ramps")] + overview_cells(r, cfg, ramp=True)
+            nxt = _write_table(ws, 1, f"List of frequency steps for {m} simulation",
+                               OVERVIEW_HEAD, body)
+            nxt = _write_table(ws, nxt, f"{m} simulation results at the POC (frequency steps)",
+                               RESULTS_HEAD, results_cells(r))
+            if m in ramps:
+                ws.cell(nxt, 1, "Ramp results: not evaluated yet (ramp list above assumed "
+                                "equal to the step list).")
+            widths = [12, 12, 14, 24, 13, 16, 12]
+        for c, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(c)].width = w
+        ws.sheet_properties.pageSetUpPr.fitToPage = True   # print / PDF: one page wide
+        ws.page_setup.fitToHeight = 0
+    _plain_sheet(wb.create_sheet("criteria"), criteria_sheet(results, cfg),
+                 {"No.": 5, "Criterion": 28, "Requirement": 34, "LFSM-O": 30, "LFSM-U": 30,
+                  "FSM": 40, "Verdict": 16, "Note": 50})
+    _plain_sheet(wb.create_sheet("info"), info_sheet(results, manifest, skipped, cfg),
+                 {"Item": 22, "Value": 90})
+    _plain_sheet(wb.create_sheet("flags"), flags_sheet(results),
+                 {"Case": 16, "Event": 20, "Flag": 90})
+    raw = wb.create_sheet("raw")
+    _plain_sheet(raw, raw_sheet(results))
+    wb.save(path)
 
 
 def plot_case(res: dict, path: str, out_dir: str, cfg: dict = CONFIG) -> None:

@@ -283,7 +283,7 @@ def test_run_missing_columns_and_ramp(tmp_path):
     out = os.path.join(d, "freq_results.xlsx")
     assert fq.run(d, out) == 0
     x = pd.read_excel(out, sheet_name=None)
-    assert {"info", "overview_LFSM-O", "steps_LFSM-O", "criteria", "raw", "flags"} <= set(x)
+    assert {"info", "LFSM-O", "criteria", "raw", "flags"} <= set(x)
     skipped = " ".join(map(str, x["info"]["Value"]))
     assert "missing columns" in skipped and "ramp evaluation not implemented" in skipped
     assert "no_result_data" in skipped
