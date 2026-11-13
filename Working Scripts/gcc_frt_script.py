@@ -21,7 +21,12 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.6
+# Version : 5.7
+#
+# CHANGELOG v5.6 -> v5.7
+# ----------------------
+#   * Plot time axis: t_fault - 1 s to the simulation stop time
+#     (simulation.t_stop_s, now 15 s) for every case.
 #
 # CHANGELOG v5.5 -> v5.6
 # ----------------------
@@ -413,9 +418,7 @@ def poc_pq_range(psetp, qsetp, margin=None, step=None):
 #       'GU Terminal' : same layout using the plant's GU busbar + inverter
 #                       ('GU Terminal 1' / 'GU Terminal 2' for two plants)
 #
-#     x-range is derived per case:  [t_fault - 1,  min(t_stop, t_clear + rec + 2)]
-#     where rec = post_fault_recovery.recovery_time_s from the grid code
-#     (falls back to 2 s if not defined).
+#     x-range per case:  [t_fault - 1,  t_stop]  (t_stop = simulation.t_stop_s)
 # ==============================================================================
 
 def gu_page_names(n_plants):
@@ -443,7 +446,7 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
     t_stop  = sc_cfg["t_stop"]
 
     x_min = max(0.0, t_fault - 1.0)
-    x_max = min(t_stop, t_clear + recovery_time_s + 2.0)
+    x_max = t_stop                       # whole run after the fault (to t_stop_s)
     x_refs = [t_fault, t_clear]
 
     def graph(page, title, curves, row, col):
@@ -869,7 +872,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.6 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.7 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -1392,7 +1395,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.6",
+            "script_version": "5.7",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")

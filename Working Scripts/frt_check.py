@@ -122,14 +122,14 @@ CONFIG: dict = {
     "small_step_band_pu": 0.02,
     "no_step_pu": 0.02,              # |dI| below this: "n/a (no step)"
     # Post-fault
-    "final_window_s": 2.0,
+    "final_window_s": 1.0,           # runs end at 15 s: 3 s fault clears at 13 s
     "final_state_frac": 0.01,
     "damping_start_s": 0.5,
     "damping_window_s": 1.0,
     "damping_abs_tol_MW": 0.2,       # noise floor for "peak-to-peak increased"
     "p_loss_persist_s": 0.5,         # P below the recovery threshold this long after
                                      # recovering = active power lost
-    "complete_after_tc_s": 5.0,
+    "complete_after_tc_s": 1.5,      # run must reach t_c + 1.5 s (15 s stop, 3 s fault: t_c 13 s)
     "consistency_spread_pu": 0.005,
     # Grid code YAML compared against fault_duration_ms (warning only)
     "grid_code_yaml": "netherlands_NC-RfG-TypeD.yaml",

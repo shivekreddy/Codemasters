@@ -129,7 +129,7 @@ simulation:
   # Timing (FRT)
   integration_step_s:   0.001   # RMS integration step size [s]
   t_start_s:            0.0     # Simulation start time [s]
-  t_stop_s:             20.0    # Simulation stop time for FRT cases [s]
+  t_stop_s:             15.0    # Simulation stop time for FRT cases [s] (also the plot time axis end)
   fault_start_s:        10.0    # Time at which faults are applied [s]
 
   # All FRT cases (Q0, Qmax, Qmin) at reduced active power, so the inverters
