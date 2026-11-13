@@ -758,34 +758,106 @@ def _k_text(k, limited):
     return f"{k:.2f}*" if limited else f"{k:.2f}"
 
 
-def table_sheets(results: list[dict]) -> dict[str, pd.DataFrame]:
-    """Report-table sheets: <fault>_<POC|GU>_<pos|neg>, rounded."""
-    sheets = {}
+# ------------------------------------------------------------------------------
+# Report-ready tables (DNV 25-1670 Rev. 2 chapter 5.4, Tables 5-2 to 5-11): one
+# tab per fault type, tables in report order. Cells stay numbers; the number
+# format gives the report text (1.00, 1.10*, 5), so a copy into Word matches.
+# ------------------------------------------------------------------------------
+REPORT_HEAD_POC = ["Case", "Upre-fault [p.u.]", "Ufault [p.u.]", "Iq,pre-fault [p.u.]",
+                   "Iq,fault [p.u.]", "k-factor"]
+REPORT_HEAD_GU = REPORT_HEAD_POC + ["Ti,90 [ms]", "Ts [ms]"]
+_N_PHASE = {"3P": "3-phase", "2P": "2-phase", "1P": "1-phase"}
+
+
+def _rh(x: float, n: int = 0) -> float:
+    """Round half up as Excel shows it (12 significant digits first; no -0.00)."""
+    from decimal import Decimal, ROUND_HALF_UP
+    v = float(Decimal(f"{float(x):.12g}").quantize(Decimal(1).scaleb(-n), rounding=ROUND_HALF_UP))
+    return v + 0.0 if v != 0 else 0.0
+
+
+def _ordered(results: list[dict]) -> list[dict]:
+    """3P, 2P, 1P; by retained voltage; Q0, Qmax, Qmin (report order)."""
+    return sorted(results, key=lambda r: (_F_ORDER.get(r["case"].fault, 9),
+                                          r["case"].retained_pct,
+                                          _Q_ORDER.get(r["case"].q_label, 9)))
+
+
+def report_rows(results: list[dict], fault: str, key: str, seq: str) -> list[list]:
+    """
+    One report table: rows of (value, number format) for location `key`
+    (POC / GU1 / GU2) and sequence pos / neg. GU tables add Ti,90 and Ts [ms]:
+    "N/A" where FFCI does not apply (residual voltage <= 0.15 pu).
+    """
+    u, i, k = ("U1", "Iq1", "k1") if seq == "pos" else ("U2", "Iq2", "k2")
+    rows = []
+    for res in _ordered(results):
+        if res["case"].fault != fault or key not in res["locations"]:
+            continue
+        r = res["locations"][key]
+        num = lambda x: ("-", None) if x is None or not np.isfinite(x) else (_rh(x, 2), "0.00")
+        kk = r.get(k)
+        kc = (("-", None) if kk is None or not np.isfinite(kk) else
+              (_rh(kk, 2), '0.00"*"' if r.get("limited") else "0.00"))
+        row = [(res["case"].name, None), num(r[f"{u}_pre"]), num(r[f"{u}_fault"]),
+               num(r[f"{i}_pre"]), num(r[f"{i}_fault"]), kc]
+        if key != "POC":
+            for q in ("ti90", "ts"):
+                v = r.get(f"{q}_{seq}_ms")
+                if not r.get("ffci_applies"):
+                    row.append(("N/A", None))
+                else:
+                    row.append(("-", None) if v is None else (_rh(v, 0), "0"))
+        rows.append(row)
+    return rows
+
+
+def write_report_tables(wb, results: list[dict], cfg: dict = CONFIG) -> None:
+    """Tabs '3P faults', '2P faults', '1P faults' with the chapter 5.4 tables."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    thin = Side(style="thin", color="000000")
     for fault in ("3P", "2P", "1P"):
-        for where in ("POC", "GU"):
-            for seq in (("pos",) if fault == "3P" else ("pos", "neg")):
-                rows = []
-                for res in results:
-                    if res["case"].fault != fault:
-                        continue
-                    for key, r in res["locations"].items():
-                        if (where == "POC") != (key == "POC"):
-                            continue
-                        u, i, k = ("U1", "Iq1", "k1") if seq == "pos" else ("U2", "Iq2", "k2")
-                        row = {"Case": r["case"]}
-                        if where == "GU":
-                            row["Location"] = r["location"]
-                        row.update({"Upre": _r(r[f"{u}_pre"]), "Ufault": _r(r[f"{u}_fault"]),
-                                    "Iq,pre": _r(r[f"{i}_pre"]), "Iq,fault": _r(r[f"{i}_fault"]),
-                                    "k": _k_text(r[k], r.get("limited", False))})
-                        if where == "GU":
-                            row["Ti,90 [ms]"] = _r(r.get(f"ti90_{seq}_ms"), 1)
-                            ts = r.get(f"ts_{seq}_ms")
-                            row["Ts [ms]"] = _r(ts, 1)
-                            row["P recovery [s]"] = _r(r.get("p_recovery_s"), 2)
-                        rows.append(row)
-                sheets[f"{fault}_{where}_{seq}"] = pd.DataFrame(rows)
-    return sheets
+        if not any(r["case"].fault == fault for r in results):
+            continue
+        ws = wb.create_sheet(f"{fault} faults")
+        gus = [g for g in ("GU1", "GU2")
+               if any(g in r["locations"] for r in results if r["case"].fault == fault)]
+        row0 = 1
+        for seq in (("pos",) if fault == "3P" else ("pos", "neg")):
+            for key in ["POC"] + gus:
+                body = report_rows(results, fault, key, seq)
+                if not body:
+                    continue
+                where = "the POC" if key == "POC" else "the GU terminals"
+                if key != "POC" and len(gus) > 1:
+                    where += f" ({cfg['gu_names'][key]})"
+                title = (f"{'Positive' if seq == 'pos' else 'Negative'}-sequence results "
+                         f"for the {_N_PHASE[fault]} faults at {where}")
+                head = REPORT_HEAD_POC if key == "POC" else REPORT_HEAD_GU
+                ws.cell(row0, 1, title).font = Font(bold=True)
+                for c, h in enumerate(head, 1):
+                    cell = ws.cell(row0 + 1, c, h)
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+                    cell.alignment = Alignment(horizontal="center", vertical="center",
+                                               wrap_text=True)
+                    cell.border = Border(top=thin, bottom=thin)
+                r = row0 + 1
+                for row in body:
+                    r += 1
+                    for c, (v, fmt) in enumerate(row, 1):
+                        cell = ws.cell(r, c, v)
+                        if fmt:
+                            cell.number_format = fmt
+                        cell.alignment = Alignment(horizontal="center")
+                for c in range(1, len(head) + 1):
+                    ws.cell(r, c).border = Border(bottom=thin)
+                row0 = r + 3
+        for c, w in enumerate([14, 12, 10, 13, 11, 10, 10, 9], 1):
+            ws.column_dimensions[get_column_letter(c)].width = w
+        ws.sheet_properties.pageSetUpPr.fitToPage = True   # print / PDF: one page wide
+        ws.page_setup.fitToHeight = 0
 
 
 def raw_sheet(results: list[dict]) -> pd.DataFrame:
@@ -933,10 +1005,7 @@ def case_summary(res: dict, cfg: dict = CONFIG) -> dict:
 def summary_rows(results: list[dict], errors: list[tuple[str, str]],
                  cfg: dict = CONFIG) -> list[dict]:
     """Every case folder: evaluated cases (3P, 2P, 1P; by retained voltage; Q0, Qmax, Qmin), then errors."""
-    ordered = sorted(results, key=lambda r: (_F_ORDER.get(r["case"].fault, 9),
-                                             r["case"].retained_pct,
-                                             _Q_ORDER.get(r["case"].q_label, 9)))
-    rows = [case_summary(r, cfg) for r in ordered]
+    rows = [case_summary(r, cfg) for r in _ordered(results)]
     for folder, msg in errors:
         row = {c: ("-", False) for c in SUMMARY_COLS}
         try:
@@ -993,8 +1062,7 @@ def write_excel(results: list[dict], path: str, warnings: list[str],
         pd.DataFrame().to_excel(xl, sheet_name="Summary", index=False)
         write_summary(xl.sheets["Summary"], summary_rows(results, errors or [], cfg),
                       "FRT / FFCI compliance summary")
-        for name, df in table_sheets(results).items():
-            df.to_excel(xl, sheet_name=name, index=False)
+        write_report_tables(xl.book, results, cfg)
         raw_sheet(results).to_excel(xl, sheet_name="raw", index=False)
         crit = criteria_sheet(results, cfg)
         crit.to_excel(xl, sheet_name="criteria", index=False)

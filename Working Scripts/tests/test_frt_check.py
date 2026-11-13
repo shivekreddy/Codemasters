@@ -279,3 +279,19 @@ def test_summary_lists_failed_case_in_red(tmp_path):
     assert ws.cell(5, 1).value == "3P-20U-Qmax"
     res = ws.cell(5, fc.SUMMARY_COLS.index("Result") + 1)
     assert res.value == "ERROR" and res.fill.fgColor.rgb.endswith(fc.FAIL_FILL)
+
+
+@needs_sample
+def test_report_tables_layout(tmp_path):
+    import shutil, openpyxl
+    shutil.copytree(SAMPLE, tmp_path / "FRT 1PH 0.05 Q0")
+    out = tmp_path / "results.xlsx"
+    assert fc.run(str(tmp_path), str(out)) == 0
+    wb = openpyxl.load_workbook(out)
+    assert wb.sheetnames[:2] == ["Summary", "1P faults"]
+    ws = wb["1P faults"]
+    titles = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)
+              if str(ws.cell(r, 1).value or "").endswith((")", "POC"))]
+    assert titles[0] == "Positive-sequence results for the 1-phase faults at the POC"
+    assert [c.value for c in ws[2]] == fc.REPORT_HEAD_POC
+    assert ws.cell(3, 1).value == "1P-5U-Q0" and ws.cell(3, 2).number_format == "0.00"
