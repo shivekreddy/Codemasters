@@ -21,7 +21,18 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.5
+# Version : 5.6
+#
+# CHANGELOG v5.5 -> v5.6
+# ----------------------
+#   * Fixed y-axis ranges on the plot pages (time axis unchanged):
+#       voltages 0 to 1.2 pu, currents -1 to 1.2 pu (POC and GU pages);
+#       POC power per case: bottom = next multiple of 5 below
+#       min(Q setpoint, 0), top = largest of P and |Q| setpoint + 10,
+#       rounded up to a multiple of 5. GU power stays on auto scale.
+#   * POC page power and currents plotted on the breaker's bus2 side
+#     (export positive, as in the frequency plots). Plot only: the raw
+#     data export keeps the bus1 variables.
 #
 # CHANGELOG v5.4 -> v5.5
 # ----------------------
@@ -137,6 +148,21 @@ DTGRD_MAX_S = 0.01
 #   opposite sign.
 # ------------------------------------------------------------------------------
 QSETP_SIGN = +1
+
+# ------------------------------------------------------------------------------
+# Plot y-axis ranges (the time axis is set per case from the fault times)
+# ------------------------------------------------------------------------------
+Y_RANGE_VOLTAGE = (0.0, 1.2)    # phase and sequence voltages [pu]
+Y_RANGE_CURRENT = (-1.0, 1.2)   # active / reactive currents [pu]
+PQ_MARGIN_MW    = 10.0          # POC power: top = largest setpoint + margin
+PQ_STEP_MW      = 5.0           # POC power: axis limits on multiples of this
+
+# POC page power and currents are plotted on the POC breaker's bus2 side:
+# export positive (bus1 is load oriented, export negative). These are
+# recorded for the plots only; the raw data export keeps the bus1 variables.
+POC_PLOT_SIDE = "bus2"
+POC_PLOT_VARS = [("poc_breaker", f"m:{v}:{POC_PLOT_SIDE}", None)
+                 for v in ("Psum", "Qsum", "i1P", "i1Q", "i2Q")]
 
 
 # ==============================================================================
@@ -361,6 +387,25 @@ def add_recorded_results(elmRes, elm_objects, app, record_vars=RECORD_VARS):
         elmRes.AddVariable(elm, variable)
 
 
+def poc_pq_range(psetp, qsetp, margin=None, step=None):
+    """
+    y-axis range [MW / Mvar] of the POC power graph for one case:
+      bottom = next multiple of `step` strictly below min(Q setpoint, 0), so
+               a P dip to zero during the fault stays visible
+               (Qmin -21.47 -> -25, Q0 / Qmax -> -5, -65 -> -70)
+      top    = largest of P and |Q| setpoint + `margin`, rounded up to a
+               multiple of `step` (P 60.5 MW -> 75)
+    """
+    margin = PQ_MARGIN_MW if margin is None else margin
+    step   = PQ_STEP_MW if step is None else step
+    low_val = min(float(qsetp), 0.0)
+    bottom  = math.floor(low_val / step + 1e-9) * step
+    if bottom >= low_val - 1e-9:
+        bottom -= step
+    top = math.ceil((max(float(psetp), abs(float(qsetp))) + margin) / step - 1e-9) * step
+    return bottom, top
+
+
 # ==============================================================================
 # 5.  PLOT PAGE SETUP
 #     One POC page plus one GU page per plant:
@@ -408,8 +453,13 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
             row=row, col=col, x_refs=x_refs,
             labels=[gcc.curve_label(name, var) for _, name, var, _ in curves])
 
-    def fill_page(page_name, bus, bus_name, src, src_name):
-        """2x2 page: phase voltages, sequence voltages, P/Q, currents."""
+    def fill_page(page_name, bus, bus_name, src, src_name, side="bus1",
+                  pq_range=None):
+        """
+        2x2 page: phase voltages, sequence voltages, P/Q, currents.
+        side: bus side of src for power and currents. pq_range: (min, max)
+        of the P/Q graph, or None to leave it on auto scale.
+        """
         page = desktop.GetPage(page_name, 1, "GrpPage")
         page.SetResults(elmRes)
         graphs = [
@@ -421,12 +471,12 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
                   [(bus, bus_name, "m:u1", gcc.C_BLUE),
                    (bus, bus_name, "m:u2", gcc.C_RED)], 0, 1),
             graph(page, "Curve plot(2)",
-                  [(src, src_name, "m:Psum:bus1", gcc.C_TEAL),
-                   (src, src_name, "m:Qsum:bus1", gcc.C_BLUE)], 1, 0),
+                  [(src, src_name, f"m:Psum:{side}", gcc.C_TEAL),
+                   (src, src_name, f"m:Qsum:{side}", gcc.C_BLUE)], 1, 0),
             graph(page, "Curve plot(3)",
-                  [(src, src_name, "m:i1P:bus1", gcc.C_TEAL),
-                   (src, src_name, "m:i1Q:bus1", gcc.C_ORANGE),
-                   (src, src_name, "m:i2Q:bus1", gcc.C_GREEN)], 1, 1),
+                  [(src, src_name, f"m:i1P:{side}", gcc.C_TEAL),
+                   (src, src_name, f"m:i1Q:{side}", gcc.C_ORANGE),
+                   (src, src_name, f"m:i2Q:{side}", gcc.C_GREEN)], 1, 1),
         ]
         try:
             page.SetLayoutMode(2)
@@ -435,9 +485,16 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
             pass
         for g in graphs:
             gcc.set_xrange(g, x_min, x_max, app)
+        gcc.set_yrange(graphs[0], *Y_RANGE_VOLTAGE, app)
+        gcc.set_yrange(graphs[1], *Y_RANGE_VOLTAGE, app)
+        if pq_range is not None:
+            gcc.set_yrange(graphs[2], *pq_range, app)
+        gcc.set_yrange(graphs[3], *Y_RANGE_CURRENT, app)
 
-    # POC page: busbar voltages + breaker power and currents
-    fill_page("POC", POC_BB, names["poc_busbar"], POC_BRK, names["poc_breaker"])
+    # POC page: busbar voltages + breaker power and currents (export positive)
+    fill_page("POC", POC_BB, names["poc_busbar"], POC_BRK, names["poc_breaker"],
+              side=POC_PLOT_SIDE,
+              pq_range=poc_pq_range(sc_cfg["psetp"], sc_cfg["qsetp"]))
 
     # GU pages — one per plant
     for n, (page_name, (GU_BB, Inverter)) in enumerate(
@@ -812,7 +869,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.5 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.6 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -1100,7 +1157,8 @@ def _run(app):
                     app.PrintWarn("    No result object set in the case's "
                                   "ComInc — variables not recorded.")
                 else:
-                    add_recorded_results(elmRes, elm_objects, app, record_vars)
+                    add_recorded_results(elmRes, elm_objects, app,
+                                         record_vars + POC_PLOT_VARS)
 
                 # --------------------------------------------------------------
                 # E. Plot pages
@@ -1334,7 +1392,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.5",
+            "script_version": "5.6",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")

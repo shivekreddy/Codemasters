@@ -541,6 +541,12 @@ VARIABLE_LABELS = {
     "m:i1P:bus1":  ("Positive-Sequence Active Current",   "p.u."),
     "m:i1Q:bus1":  ("Positive-Sequence Reactive Current", "p.u."),
     "m:i2Q:bus1":  ("Negative-Sequence Reactive Current", "p.u."),
+    # Other side of the POC breaker (export positive), POC page of the FRT plots
+    "m:Psum:bus2": ("Total Active Power",                 "MW"),
+    "m:Qsum:bus2": ("Total Reactive Power",               "Mvar"),
+    "m:i1P:bus2":  ("Positive-Sequence Active Current",   "p.u."),
+    "m:i1Q:bus2":  ("Positive-Sequence Reactive Current", "p.u."),
+    "m:i2Q:bus2":  ("Negative-Sequence Reactive Current", "p.u."),
     "m:fehz":      ("Frequency",                          "Hz"),
 }
 
