@@ -758,7 +758,6 @@ def info_sheet(results: list[dict], manifest: dict, skipped: list[str],
                cfg: dict = CONFIG) -> pd.DataFrame:
     rows = [("Tool", "freq_check.py"), ("Basis", SOURCE),
             ("Run", manifest.get("run_tag")), ("Exported", manifest.get("exported"))]
-    if results:
     for r in results:
         pre = r["pre"]
         rows.append((f"P0 {r['name']}", f"{r['P0']:.3f} MW measured "
