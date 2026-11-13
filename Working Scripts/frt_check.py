@@ -82,7 +82,10 @@ CONFIG: dict = {
         "iq_cap_export_pu": 1.07,    # Iq limit in exported pu
         "i_total_cap_export_pu": 1.08,   # phase current limit in exported pu
     },
-    "gu_names": {"GU1": "HVC", "GU2": "Novar"},
+    # Plant names in the output. None = taken from the export column headers,
+    # i.e. the GU busbar legend names in the project config (plot_labels).
+    # Override per plant if wanted, e.g. {"GU1": "HVC", "GU2": "Novar"}.
+    "gu_names": None,
     "k_set": 5.0,
     "k_tol": 0.10,                   # k within k_set +/- 10 % = "per setting"
     "ffci_min_residual_pu": 0.15,    # NBNL 4.2.18
@@ -133,7 +136,12 @@ CONFIG: dict = {
     "grid_code_yaml": "netherlands_NC-RfG-TypeD.yaml",
 }
 
-FILES = {"POC": "POC.csv", "GU1": "GU Terminal 1.csv", "GU2": "GU Terminal 2.csv"}
+# Export layout (gcc_export_raw_results.py): POC.csv plus one GU file per
+# plant, "GU Terminal.csv" for a one-plant model, "GU Terminal 1.csv" and
+# "GU Terminal 2.csv" for a two-plant model (as set in the project config).
+POC_FILE = "POC.csv"
+GU_FILES_ONE = {"GU1": "GU Terminal.csv"}
+GU_FILES_TWO = {"GU1": "GU Terminal 1.csv", "GU2": "GU Terminal 2.csv"}
 
 # Signal keys in export order, with the header keyword(s) that identify them
 SIGNALS = ["Ua", "Ub", "Uc", "U1", "U2", "P", "Q", "Ip1", "Iq1", "Iq2"]
@@ -170,7 +178,7 @@ class Location:
                P and Q identical to `exported`
     """
     key: str                       # POC / GU1 / GU2
-    name: str                      # POC / HVC / Novar
+    name: str                      # POC / plant name (e.g. HVC)
     t: np.ndarray
     exported: dict
     scaled: dict
@@ -240,8 +248,56 @@ def load_location(path: str, key: str, cfg: dict = CONFIG) -> Location:
 
     scale = cfg["poc"]["i_scale"] if key == "POC" else cfg["gu"]["i_scale"]
     scaled = {s: (v * scale if s in CURRENTS else v) for s, v in exported.items()}
-    name = "POC" if key == "POC" else cfg["gu_names"][key]
+    if key == "POC":
+        name = "POC"
+    elif (cfg.get("gu_names") or {}).get(key):
+        name = cfg["gu_names"][key]
+    else:
+        name = plant_name(list(df.columns)) or key
     return Location(key, name, t, exported, scaled, flags)
+
+
+def plant_name(headers: list[str]) -> str | None:
+    """
+    The plant name from the phase-A voltage header: the legend name the
+    export put in front of it ("HVC GU Terminal Line-Ground Voltage A (p.u.)"
+    -> "HVC GU Terminal"). That name comes from the project config.
+    """
+    for h in headers:
+        m = re.search(KEYWORDS["Ua"], h, re.I)
+        if m:
+            name = re.sub(r"[\s:,-]*(line-ground|l-g|phase)?[\s-]*$", "", h[:m.start()],
+                          flags=re.I).strip()
+            return name or None
+    return None
+
+
+def case_files(folder: str) -> tuple[dict, list[str]]:
+    """
+    {POC / GU1 / GU2: file name} for one case folder, by export layout:
+    one plant ("GU Terminal.csv") or two plants ("GU Terminal 1.csv",
+    "GU Terminal 2.csv"). Returns (files found, flags for missing files).
+    """
+    have = lambda f: os.path.isfile(os.path.join(folder, f))
+    files, flags = {}, []
+    if have(POC_FILE):
+        files["POC"] = POC_FILE
+    one = {k: f for k, f in GU_FILES_ONE.items() if have(f)}
+    two = {k: f for k, f in GU_FILES_TWO.items() if have(f)}
+    if one and two:
+        flags.append("both one-plant and two-plant GU files found; the two-plant "
+                     "files are used (old export left in the folder?)")
+    if two:
+        files.update(two)
+        missing = [f for k, f in GU_FILES_TWO.items() if k not in two]
+        if missing:
+            flags.append("missing files: " + ", ".join(missing))
+    elif one:
+        files.update(one)
+    else:
+        flags.append("missing files: no GU Terminal file (expected 'GU Terminal.csv' "
+                     "or 'GU Terminal 1.csv' + 'GU Terminal 2.csv')")
+    return files, flags
 
 
 # ==============================================================================
@@ -651,14 +707,10 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
                   tc: float | None = None) -> dict:
     """Evaluate one case folder: events, validity, all locations, verdicts."""
     case = parse_case_name(folder)
-    locs = {k: load_location(os.path.join(folder, f), k, cfg)
-            for k, f in FILES.items() if os.path.isfile(os.path.join(folder, f))}
-    if "POC" not in locs:
+    files, flags = case_files(folder)
+    if "POC" not in files:
         raise FileNotFoundError(f"{folder}: POC.csv missing.")
-    flags = []
-    missing = [f for k, f in FILES.items() if k not in locs]
-    if missing:
-        flags.append("missing files: " + ", ".join(missing))
+    locs = {k: load_location(os.path.join(folder, f), k, cfg) for k, f in files.items()}
 
     # --- events (POC phase voltages) ------------------------------------------------
     poc = locs["POC"]
@@ -679,7 +731,7 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
     # all files share the POC time base; take the same samples by index
     for loc in locs.values():
         if len(loc.t) != len(poc.t) or not np.allclose(loc.t, poc.t):
-            raise ValueError(f"{FILES[loc.key]}: time column differs from POC.csv.")
+            raise ValueError(f"{files[loc.key]}: time column differs from POC.csv.")
 
     # --- run validity -------------------------------------------------------------------
     v = {"t_f": t_f, "t_c": t_c, "fault_duration_ms": (t_c - t_f) * 1000.0}
@@ -758,6 +810,7 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
         flags.append("possible undamped oscillation (POC " + ", ".join(osc) + ")")
 
     return {"case": case, "validity": v, "locations": results, "flags": flags,
+            "files": files,
             "ride_through": "pass" if ride_ok else "fail"}
 
 
@@ -864,6 +917,14 @@ def report_rows(results: list[dict], fault: str, key: str, seq: str) -> list[lis
     return rows
 
 
+def _loc_name(results: list[dict], key: str) -> str:
+    """Display name of location key (GU1 / GU2) as found in the results."""
+    for r in results:
+        if key in r["locations"]:
+            return r["locations"][key]["location"]
+    return key
+
+
 def write_report_tables(wb, results: list[dict], cfg: dict = CONFIG) -> None:
     """Tabs '3P faults', '2P faults', '1P faults' with the chapter 5.4 tables."""
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -883,7 +944,7 @@ def write_report_tables(wb, results: list[dict], cfg: dict = CONFIG) -> None:
                     continue
                 where = "the POC" if key == "POC" else "the GU terminals"
                 if key != "POC" and len(gus) > 1:
-                    where += f" ({cfg['gu_names'][key]})"
+                    where += f" ({_loc_name(results, key)})"
                 title = (f"{'Positive' if seq == 'pos' else 'Negative'}-sequence results "
                          f"for the {_N_PHASE[fault]} faults at {where}")
                 head = REPORT_HEAD_POC if key == "POC" else REPORT_HEAD_GU
@@ -978,7 +1039,7 @@ def consistency_sheet(results: list[dict], cfg: dict = CONFIG) -> pd.DataFrame:
             for qty, key in (("Upre", "U1_pre"), ("Iq,pre", "Iq1_pre")):
                 xs = [r[key] for _, r in vals]
                 spread = max(xs) - min(xs)
-                rows.append({"Q condition": q, "Location": cfg["gu_names"][gu],
+                rows.append({"Q condition": q, "Location": vals[0][1]["location"],
                              "Quantity": qty, "n cases": len(xs), "min": min(xs),
                              "max": max(xs), "spread": spread,
                              "Flag": ("spread > " + str(cfg["consistency_spread_pu"]) + " pu")
@@ -1135,7 +1196,7 @@ def plot_case(res: dict, folder: str, out_dir: str, cfg: dict = CONFIG) -> None:
     for ax, gu in zip(axes, ("GU1", "GU2")):
         if gu not in res["locations"]:
             continue
-        loc = load_location(os.path.join(folder, FILES[gu]), gu, cfg)
+        loc = load_location(os.path.join(folder, res["files"][gu]), gu, cfg)
         r = res["locations"][gu]
         t_f = r["t_f"]
         m = window(loc.t, t_f - 0.020, t_f + 0.100)

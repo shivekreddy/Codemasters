@@ -336,3 +336,46 @@ def test_step_loss_is_not_an_oscillation():
     t, p = p_trace(15.0)
     assert fc.damping_increase(t, p, 12.2)               # the step alone fools the window check
     assert not fc.damping_increase(t, p, 12.2, t_end=15.0)
+
+
+# ==============================================================================
+# Export layout: one plant ("GU Terminal.csv") or two ("GU Terminal 1/2.csv")
+# ==============================================================================
+
+def test_case_files_layouts(tmp_path):
+    one, two = tmp_path / "one", tmp_path / "two"
+    for d, names in ((one, ["POC.csv", "GU Terminal.csv"]),
+                     (two, ["POC.csv", "GU Terminal 1.csv"])):
+        d.mkdir()
+        for n in names:
+            (d / n).write_text("time_s\n0\n")
+    files, flags = fc.case_files(str(one))
+    assert files == {"POC": "POC.csv", "GU1": "GU Terminal.csv"} and flags == []
+    files, flags = fc.case_files(str(two))
+    assert files == {"POC": "POC.csv", "GU1": "GU Terminal 1.csv"}
+    assert flags == ["missing files: GU Terminal 2.csv"]
+
+
+def test_plant_name_from_export_header():
+    assert fc.plant_name(["time_s", "HVC GU Terminal Line-Ground Voltage A (p.u.)"]) == "HVC GU Terminal"
+    assert fc.plant_name(["time_s", "GU Voltage A [pu]"]) == "GU"
+
+
+@needs_sample
+def test_one_plant_export_evaluates(tmp_path):
+    import shutil, openpyxl
+    case = tmp_path / "FRT 1PH 0.05 Q0"
+    case.mkdir()
+    shutil.copy(os.path.join(SAMPLE, "POC.csv"), case / "POC.csv")
+    shutil.copy(os.path.join(SAMPLE, "GU Terminal 1.csv"), case / "GU Terminal.csv")
+    res = fc.evaluate_case(str(case))
+    assert set(res["locations"]) == {"POC", "GU1"}
+    assert not any("missing files" in f for f in res["flags"])
+    assert res["locations"]["GU1"]["location"] == "HVC GU Terminal"
+    out = tmp_path / "r.xlsx"
+    assert fc.run(str(tmp_path), str(out)) == 0
+    ws = openpyxl.load_workbook(out)["1P faults"]
+    titles = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)
+              if str(ws.cell(r, 1).value or "").startswith(("Positive", "Negative"))]
+    assert "Positive-sequence results for the 1-phase faults at the GU terminals" in titles
+    assert len(titles) == 4                          # POC + GU, pos + neg

@@ -45,6 +45,8 @@
 # ----------------------
 #   * Folders come from ONE place: the project config 'paths: root:'. The run
 #     manifest is written to <root>\Run Manifests (was results.output_dir).
+#   * No longer looks up the GU busbar / inverter: the frequency study uses
+#     the POC only, so it works the same for one- and two-plant models.
 #
 # CHANGELOG v3.0 -> v3.1
 # ----------------------
@@ -459,17 +461,8 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
     SC               = gcc.find_element(app, "ElmStactrl", elem_cfg["station_ctrl"])
     PFC              = gcc.find_element(app, "ElmSecctrl", elem_cfg["pfc_ctrl"])
     freq_volt_source = gcc.find_element(app, "ElmVac",     elem_cfg["freq_voltage_source"])
-    # Optional here (not plotted), but resolved so that any RECORD_VARS_FREQ
-    # entries keyed on them are recorded — same lookups as the FRT script.
-    # Plant 1: elements.gu_busbar1 / inverter1 (or the old gu_busbar / inverter)
-    gu_name  = gcc.element_name(elem_cfg, "gu_busbar")
-    inv_name = gcc.element_name(elem_cfg, "inverter")
-    GU_BB    = (gcc.find_element(app, "ElmTerm", gu_name, required=False)
-                if gu_name else None)
-    Inverter = None
-    if inv_name:
-        Inverter = (gcc.find_element(app, "ElmGenstat", inv_name, required=False)
-                    or gcc.find_element(app, "ElmSym", inv_name, required=False))
+    # The frequency study is assessed at the POC only (NBNL 4.2.1-4.2.3): the
+    # plants' GU busbars and inverters (one or two) are not needed here.
 
     app.PrintPlain(f"  [ok] POC busbar       : {POC_BB.loc_name}")
     app.PrintPlain(f"  [ok] POC breaker      : {POC_BRK.loc_name}")
@@ -477,10 +470,6 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
     app.PrintPlain(f"  [ok] Station ctrl     : {SC.loc_name}")
     app.PrintPlain(f"  [ok] PFC ctrl         : {PFC.loc_name}")
     app.PrintPlain(f"  [ok] Freq volt source : {freq_volt_source.loc_name}")
-    if GU_BB:
-        app.PrintPlain(f"  [ok] GU busbar        : {GU_BB.loc_name}")
-    if Inverter:
-        app.PrintPlain(f"  [ok] Inverter         : {Inverter.loc_name}")
 
     # --- 6.3 Base case (only needed when creating cases) -----------------------
     sc_folder_root = gcc.get_folder(app, "study")
@@ -523,8 +512,6 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
     elm_objects = {
         "poc_busbar":  POC_BB,
         "poc_breaker": POC_BRK,
-        "gu_busbar":   GU_BB,
-        "inverter":    Inverter,
     }
     refs = {
         "POC_BB": POC_BB, "POC_BRK": POC_BRK,
