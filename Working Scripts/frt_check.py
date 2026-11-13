@@ -862,9 +862,137 @@ def consistency_sheet(results: list[dict], cfg: dict = CONFIG) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+HEADER_FILL = "9BD7F0"                        # report table header colour
+FAIL_FILL = "FF9999"                          # summary: failed / error cells
+PASS_FILL = "C6EFCE"                          # summary: passed result cell
+SUMMARY_COLS = ["Case", "PowerFactory case", "Result", "Ride-through", "k (GU)",
+                "Ti,90 (GU)", "Ts (GU)", "P recovery", "Flags"]
+_Q_ORDER = {"Q0": 0, "Qmax": 1, "Qmin": 2}
+_F_ORDER = {"3P": 0, "2P": 1, "1P": 2}
+
+
+def case_summary(res: dict, cfg: dict = CONFIG) -> dict:
+    """
+    One summary row per case: {column: (text, failed)}. Ti,90 / Ts: pass up
+    to the simulation limit, pass* up to the limit incl. the sequence
+    calculation, FAIL beyond. k: FAIL when NON-COMPLIANT. P recovery: FAIL
+    when not recovered within the limit.
+    """
+    case = res["case"]
+    gus = [r for k, r in res["locations"].items() if k != "POC"]
+    row = {"Case": (case.name, False),
+           "PowerFactory case": (os.path.basename(case.folder.rstrip("/\\")), False)}
+    rt = res["ride_through"]
+    row["Ride-through"] = ("pass" if rt == "pass" else "FAIL", rt != "pass")
+
+    kv = [r.get(f"k{n}_verdict") for r in gus for n in (1, 2)]
+    kv = [x for x in kv if x and not x.startswith("n/a")]
+    ks = [r.get("k1") for r in gus if r.get("k1") is not None and np.isfinite(r.get("k1"))]
+    kt = f" ({min(ks):.2f}-{max(ks):.2f})" if ks else ""
+    if not kv:
+        row["k (GU)"] = ("n/a", False)
+    elif "NON-COMPLIANT" in kv:
+        row["k (GU)"] = ("FAIL" + kt, True)
+    elif "limited*" in kv:
+        row["k (GU)"] = ("pass*" + kt + ", current limited", False)
+    else:
+        row["k (GU)"] = ("pass" + kt, False)
+
+    applies = [r for r in gus if r.get("ffci_applies")]
+
+    def timing(key, lim, lim_seq):
+        vals = [r.get(f"{key}_{q}_ms") for r in applies for q in ("pos", "neg")]
+        vals = [v for v in vals if v is not None]
+        if not vals:
+            return ("n/a", False)
+        m = max(vals)
+        if m <= lim:
+            return (f"pass (max {m:.1f} ms)", False)
+        if m <= lim_seq:
+            return (f"pass* (max {m:.1f} ms, <= {lim_seq:g} ms incl. sequence calc.)", False)
+        return (f"FAIL (max {m:.1f} ms > {lim_seq:g} ms)", True)
+
+    row["Ti,90 (GU)"] = timing("ti90", cfg["ti90_limit_ms"], cfg["ti90_limit_incl_seq_ms"])
+    row["Ts (GU)"] = timing("ts", cfg["ts_limit_ms"], cfg["ts_limit_incl_seq_ms"])
+    rec = [r.get("p_recovery_s") for r in res["locations"].values()]
+    if any(x is None for x in rec):
+        row["P recovery"] = ("FAIL (not recovered)", True)
+    else:
+        m = max(rec)
+        ok = m <= cfg["p_recovery_limit_s"]
+        row["P recovery"] = (f"{'pass' if ok else 'FAIL'} (max {m:.2f} s)", not ok)
+    failed = any(f for _, f in row.values())
+    star = any(str(t).startswith("pass*") for t, _ in row.values())
+    row["Result"] = ("FAIL" if failed else ("PASS*" if star else "PASS"), failed)
+    fl = res["flags"] + [f"{r['location']}: {f}" for r in res["locations"].values()
+                         for f in r["flags"]]
+    row["Flags"] = (f"{len(fl)}: " + " | ".join(fl) if fl else "none", False)
+    return row
+
+
+def summary_rows(results: list[dict], errors: list[tuple[str, str]],
+                 cfg: dict = CONFIG) -> list[dict]:
+    """Every case folder: evaluated cases (3P, 2P, 1P; by retained voltage; Q0, Qmax, Qmin), then errors."""
+    ordered = sorted(results, key=lambda r: (_F_ORDER.get(r["case"].fault, 9),
+                                             r["case"].retained_pct,
+                                             _Q_ORDER.get(r["case"].q_label, 9)))
+    rows = [case_summary(r, cfg) for r in ordered]
+    for folder, msg in errors:
+        row = {c: ("-", False) for c in SUMMARY_COLS}
+        try:
+            name = parse_case_name(folder).name
+        except ValueError:
+            name = folder
+        row.update({"Case": (name, False), "PowerFactory case": (folder, False),
+                    "Result": ("ERROR", True), "Flags": (msg, False)})
+        rows.append(row)
+    return rows
+
+
+def write_summary(ws, rows: list[dict], title: str) -> None:
+    """Summary tab: one row per case, failed cells red, passed results green."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    thin = Side(style="thin", color="999999")
+    ws.cell(1, 1, title).font = Font(bold=True, size=13)
+    n_pass = sum(1 for r in rows if r["Result"][0].startswith("PASS"))
+    ws.cell(2, 1, f"{len(rows)} case(s): {n_pass} pass, {len(rows) - n_pass} fail / error. "
+                  f"Failed cells are red. pass* = within the limit incl. the sequence "
+                  f"calculation, or k limited by the current limit.")
+    for c, h in enumerate(SUMMARY_COLS, 1):
+        cell = ws.cell(4, c, h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+    for r, row in enumerate(rows, 5):
+        for c, col in enumerate(SUMMARY_COLS, 1):
+            text, failed = row.get(col, ("-", False))
+            cell = ws.cell(r, c, text)
+            cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+            cell.alignment = Alignment(vertical="top", wrap_text=True,
+                                       horizontal="left" if col in ("Case", "PowerFactory case", "Flags")
+                                       else "center")
+            if failed:
+                cell.fill = PatternFill("solid", fgColor=FAIL_FILL)
+                cell.font = Font(bold=True, color="9C0006")
+            elif col == "Result" and str(text).startswith("PASS"):
+                cell.fill = PatternFill("solid", fgColor=PASS_FILL)
+                cell.font = Font(bold=True, color="006100")
+    widths = {"Case": 13, "PowerFactory case": 20, "Result": 9, "Ride-through": 12,
+              "k (GU)": 22, "Ti,90 (GU)": 26, "Ts (GU)": 26, "P recovery": 16, "Flags": 70}
+    for c, col in enumerate(SUMMARY_COLS, 1):
+        ws.column_dimensions[get_column_letter(c)].width = widths[col]
+    ws.freeze_panes = "C5"
+
+
 def write_excel(results: list[dict], path: str, warnings: list[str],
-                cfg: dict = CONFIG) -> None:
+                cfg: dict = CONFIG, errors: list[tuple[str, str]] | None = None) -> None:
+    """First tab: Summary (every case, pass / FAIL, failed cells red); then the details."""
     with pd.ExcelWriter(path, engine="openpyxl") as xl:
+        pd.DataFrame().to_excel(xl, sheet_name="Summary", index=False)
+        write_summary(xl.sheets["Summary"], summary_rows(results, errors or [], cfg),
+                      "FRT / FFCI compliance summary")
         for name, df in table_sheets(results).items():
             df.to_excel(xl, sheet_name=name, index=False)
         raw_sheet(results).to_excel(xl, sheet_name="raw", index=False)
@@ -964,12 +1092,13 @@ def run(folder: str, out: str, plots: bool = False, tf: float | None = None,
     for w in warnings:
         _warn(f"WARNING: {w}")
 
-    results = []
+    results, errors = [], []
     for case_folder in folders:
         try:
             res = evaluate_case(case_folder, cfg, tf, tc)
         except Exception as exc:                 # one case never stops the others
             _warn(f"ERROR {os.path.basename(case_folder)}: {exc}")
+            errors.append((os.path.basename(case_folder.rstrip("/\\")), f"ERROR {exc}"))
             continue
         results.append(res)
         _say(console_summary(res))
@@ -980,9 +1109,12 @@ def run(folder: str, out: str, plots: bool = False, tf: float | None = None,
             except Exception as exc:
                 _warn(f"   plot failed: {exc}")
 
-    if results:
-        write_excel(results, out, warnings, cfg)
-        _say(f"\nWritten: {out}  ({len(results)} case(s))")
+    if results or errors:
+        write_excel(results, out, warnings, cfg, errors)
+        _say("\nSUMMARY")
+        for row in summary_rows(results, errors, cfg):
+            _say(f"   {row['Case'][0]:14s} {row['Result'][0]}")
+        _say(f"\nWritten: {out}  ({len(results)} case(s) evaluated)")
     return 0
 
 

@@ -259,3 +259,23 @@ def test_pitfall_intermediate_recovery_row_not_used(sample):
     assert i_c != i_bad and poc.t[i_c] == pytest.approx(10.420, abs=1e-9)
     assert sample["locations"]["POC"]["U1_fault"] == pytest.approx(0.6858, abs=5e-5)
     assert sample["locations"]["POC"]["k1"] == pytest.approx(1.66, abs=0.005)
+
+
+# ==============================================================================
+# Summary tab
+# ==============================================================================
+
+def test_summary_lists_failed_case_in_red(tmp_path):
+    bad = tmp_path / "FRT 3PH 0.20 Qmax"
+    bad.mkdir()
+    (bad / "POC.csv").write_text("time_s,foo\n0,1\n")
+    out = tmp_path / "results.xlsx"
+    assert fc.run(str(tmp_path), str(out)) == 0
+    import openpyxl
+    wb = openpyxl.load_workbook(out)
+    assert wb.sheetnames[0] == "Summary"
+    ws = wb["Summary"]
+    assert [c.value for c in ws[4]] == fc.SUMMARY_COLS
+    assert ws.cell(5, 1).value == "3P-20U-Qmax"
+    res = ws.cell(5, fc.SUMMARY_COLS.index("Result") + 1)
+    assert res.value == "ERROR" and res.fill.fgColor.rgb.endswith(fc.FAIL_FILL)

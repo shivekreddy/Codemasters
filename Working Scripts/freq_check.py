@@ -639,109 +639,117 @@ def _max(vals):
     return max(vals) if vals else None
 
 
-def criteria_sheet(results: list[dict], cfg: dict = CONFIG) -> pd.DataFrame:
-    """DNV 25-1670 Rev. 2 Table 4-11; maxima taken from the result tables."""
-    by = {m: [s for r in results if r["mode"] == m for s in r["steps"]] for m in MODE_ORDER}
-    resp = {m: [s for s in v if not s["threshold_step"]] for m, v in by.items()}
-    ne = "not evaluated (no Step case)"
-    rows = []
+FAIL_FILL = "FF9999"                         # summary: failed / error cells
+PASS_FILL = "C6EFCE"                         # summary: passed result cell
 
-    def row(no, crit, req, vals, verdict, note=""):
-        d = {"No.": no, "Criterion": crit, "Requirement": req}
-        for m in MODE_ORDER:
-            d[m] = vals.get(m, ne) if by[m] else ne
-        d["Verdict"], d["Note"] = verdict, note
-        rows.append(d)
 
-    def verdict(oks):
-        oks = [o for o in oks if o is not None]
-        return "-" if not oks else ("pass" if all(oks) else "FAIL")
-
-    # 1 thresholds
-    v, oks = {}, []
-    for m in ("LFSM-O", "LFSM-U"):
-        th = [s for s in by[m] if s["threshold_step"]]
-        bad = [s for s in th if not s.get("threshold_ok", True)]
-        oks += [not bad] if by[m] else []
-        v[m] = (f"{len(th)} threshold step(s), max |dP| "
-                f"{_max([abs(s['dP_sim']) for s in th]) or 0:.3f} MW") if th else "no threshold step"
-    v["FSM"] = "n/a (FSM active)"
-    row(1, "Thresholds respected", "no response between 49.8 and 50.2 Hz in the LFSM cases",
-        v, verdict(oks), f"limit {cfg['threshold_resp_frac'] * 100:g} % of Pref")
-    # 2 droop
-    v, oks = {}, []
-    lo, hi = (cfg["droop"] * 100 * (1 - cfg["droop_tol_rel"]), cfg["droop"] * 100 * (1 + cfg["droop_tol_rel"]))
-    for m in MODE_ORDER:
-        d = [s["eff_droop_pct"] for s in resp[m] if s["eff_droop_pct"] is not None]
-        if d:
-            v[m] = f"{min(d):.3f} to {max(d):.3f} %"
-            oks.append(lo <= min(d) and max(d) <= hi)
-    row(2, "Response according to 5 % droop", "effective droop range",
-        v, verdict(oks), f"accepted {lo:.2f}-{hi:.2f} % (tolerance is an assumption)")
-    # 3 error
-    v, oks = {}, []
-    for m in MODE_ORDER:
-        e = _max([abs(s["error_pct"]) for s in by[m] if s["error_pct"] is not None])
-        if e is not None:
-            v[m] = f"max |error| {e:.3f} %"
-            oks.append(e <= cfg["error_limit_pct"])
-    row(3, "Error", f"<= +/-{cfg['error_limit_pct']:g} %", v, verdict(oks))
-    # 4 Ti
-    v, oks = {}, []
-    for m in MODE_ORDER:
-        ti = _max([s["Ti_s"] for s in resp[m]])
-        if ti is not None:
-            v[m] = f"max Ti {ti:.1f} s (steps)"
-            oks.append(ti <= cfg["ti_justify_s"])
-    vt = verdict(oks)
-    row(4, "Initial delay", f"as short as possible; > {cfg['ti_justify_s']:g} s needs justification",
-        v, "justification needed" if vt == "FAIL" else vt,
-        "Ti measured from the POC frequency")
-    # 5 Ts
-    v, oks = {}, []
-    for m in MODE_ORDER:
-        tss = [s["Ts_s"] for s in resp[m]]
-        if resp[m]:
-            if any(x is None for x in tss):
-                v[m], ok = "not settled in at least one hold", False
-            else:
-                ts = max(tss)
-                lim = cfg["ts_limit_s"][m]
-                v[m] = (f"max Ts {ts:.1f} s (limit {lim:g} s; "
-                        f"{'<=' if ts <= cfg['ts_limit_all_s'] else '>'} {cfg['ts_limit_all_s']:g} s)")
-                ok = ts <= lim
-            oks.append(ok)
-    row(5, "Settling time", "LFSM-O 20 s, LFSM-U 30 s, FSM 30 s (also against 20 s)", v, verdict(oks))
-    # 6 oscillation
-    v, oks = {}, []
-    for m in MODE_ORDER:
-        if resp[m]:
-            n = sum(s["osc_growing"] for s in resp[m])
-            v[m] = "none" if n == 0 else f"{n} step(s) flagged"
-            oks.append(n == 0)
-    row(6, "No undamped oscillations", "P peak-to-peak does not grow after Ts", v, verdict(oks))
-    # 7 insensitivity
-    ins = [r for r in results if r["mode"] == "FSM-INS"]
-    if ins:
-        allp = all(s["pass"] for r in ins for s in r["insens"])
-        txt = ("; ".join(f"{s['df_from_fn_mHz']:+.0f} mHz: {s['test']} "
-                         f"({'pass' if s['pass'] else 'FAIL'})"
-                         for s in ins[0]["insens"] if abs(s["df_from_fn_mHz"]) > 1e-6))
-        rows.append({"No.": 7, "Criterion": "FSM insensitivity",
-                     "Requirement": f"<= {cfg['insensitivity_limit_mHz']:g} mHz, FSM deadband 0 mHz",
-                     "LFSM-O": "-", "LFSM-U": "-", "FSM": txt,
-                     "Verdict": "pass" if allp else "FAIL",
-                     "Note": "10 mHz is the controller insensitivity; FSM deadband 0 mHz. Test sequence is the "
-                             "project's proposal (NBNL 4.2.3 sets none)."})
+def case_summary(res: dict, cfg: dict = CONFIG) -> dict:
+    """
+    One summary row per evaluated case: {column: (text, failed)}. A column is
+    FAIL when its criterion is not met (NBNL 4.2.1-4.2.3, limits in CONFIG).
+    Ti > 2 s is "justification needed", not a fail (NBNL: needs justification).
+    """
+    m, steps = res["mode"], res["steps"]
+    resp = [s for s in steps if not s["threshold_step"]]
+    row = {"Case": (res["name"], False), "Mode": (m, False)}
+    if m == "FSM-INS":
+        for col in ("Thresholds", "Droop", "Error", "Ti", "Ts", "Oscillation"):
+            row[col] = ("-", False)
+        ok = all(x["pass"] for x in res["insens"])
+        bad = [f"{x['df_from_fn_mHz']:+.0f} mHz" for x in res["insens"] if not x["pass"]]
+        row["Insensitivity"] = ("pass" if ok else "FAIL at " + ", ".join(bad), not ok)
     else:
-        rows.append({"No.": 7, "Criterion": "FSM insensitivity",
-                     "Requirement": f"<= {cfg['insensitivity_limit_mHz']:g} mHz",
-                     "LFSM-O": "-", "LFSM-U": "-", "FSM": "not demonstrated (no 10 mHz case)",
-                     "Verdict": "not demonstrated", "Note": ""})
-    rows.append({"No.": 8, "Criterion": "Model validation against compliance tests",
-                 "Requirement": "simulation matches the on-site tests", "LFSM-O": "-",
-                 "LFSM-U": "-", "FSM": "-", "Verdict": "pending", "Note": "text only"})
-    return pd.DataFrame(rows)
+        th = [s for s in steps if s["threshold_step"]]
+        if fsm_active(m) or not th:
+            row["Thresholds"] = ("n/a", False)
+        else:
+            bad = [s for s in th if not s.get("threshold_ok", True)]
+            row["Thresholds"] = ("pass" if not bad else
+                                 "FAIL: response at " + ", ".join(f"{s['f_to']:g} Hz" for s in bad),
+                                 bool(bad))
+        d = [s["eff_droop_pct"] for s in resp if s["eff_droop_pct"] is not None]
+        lo = cfg["droop"] * 100 * (1 - cfg["droop_tol_rel"])
+        hi = cfg["droop"] * 100 * (1 + cfg["droop_tol_rel"])
+        if d:
+            ok = lo <= min(d) and max(d) <= hi
+            row["Droop"] = (f"{'pass' if ok else 'FAIL'} ({min(d):.2f}-{max(d):.2f} %)", not ok)
+        else:
+            row["Droop"] = ("-", False)
+        e = _max([abs(s["error_pct"]) for s in steps if s["error_pct"] is not None])
+        ok = e is None or e <= cfg["error_limit_pct"]
+        row["Error"] = ("-" if e is None else f"{'pass' if ok else 'FAIL'} (max {e:.3f} %)", not ok)
+        ti = _max([s["Ti_s"] for s in resp])
+        row["Ti"] = ("-" if ti is None else
+                     f"{'pass' if ti <= cfg['ti_justify_s'] else 'justification needed'} "
+                     f"(max {ti:.1f} s)", False)
+        tss = [s["Ts_s"] for s in resp]
+        lim = cfg["ts_limit_s"].get(m, 30.0)
+        if not resp:
+            row["Ts"] = ("-", False)
+        elif any(x is None for x in tss):
+            row["Ts"] = ("FAIL (not settled)", True)
+        else:
+            ok = max(tss) <= lim
+            row["Ts"] = (f"{'pass' if ok else 'FAIL'} (max {max(tss):.1f} s, limit {lim:g} s)", not ok)
+        n = sum(s["osc_growing"] for s in resp)
+        row["Oscillation"] = ("none" if n == 0 else f"FAIL ({n} step(s))", n > 0)
+        row["Insensitivity"] = ("-", False)
+    failed = any(f for _, f in row.values())
+    row["Result"] = ("FAIL" if failed else "PASS", failed)
+    fl = res["flags"] + [f"{s['f_from']:g}->{s['f_to']:g} Hz: {f}" for s in steps for f in s["flags"]]
+    row["Flags"] = (f"{len(fl)}: " + " | ".join(fl) if fl else "none", False)
+    return row
+
+
+SUMMARY_COLS = ["Case", "Mode", "Result", "Thresholds", "Droop", "Error", "Ti", "Ts",
+                "Oscillation", "Insensitivity", "Flags"]
+
+
+def summary_rows(results: list[dict], others: list[dict], cfg: dict = CONFIG) -> list[dict]:
+    """Every case in the manifest: evaluated ones with their verdicts, then the rest."""
+    rows = [case_summary(r, cfg) for r in results]
+    for o in others:
+        red = o["status"] != "not evaluated"
+        row = {c: ("-", False) for c in SUMMARY_COLS}
+        row.update({"Case": (o["name"], False), "Mode": (o["mode"] or "-", False),
+                    "Result": (o["status"].upper() if red else o["status"], red),
+                    "Flags": (o["reason"], False)})
+        rows.append(row)
+    return rows
+
+
+def write_summary(ws, rows: list[dict], title: str, cols: list[str],
+                  widths: dict) -> None:
+    """Summary tab: title, one row per case, failed cells red, passed results green."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    thin = Side(style="thin", color="999999")
+    ws.cell(1, 1, title).font = Font(bold=True, size=13)
+    n_fail = sum(1 for r in rows if r["Result"][1])
+    ws.cell(2, 1, f"{len(rows)} case(s): {sum(1 for r in rows if r['Result'][0] == 'PASS')} pass, "
+                  f"{n_fail} fail / error. Failed cells are red.")
+    for c, h in enumerate(cols, 1):
+        cell = ws.cell(4, c, h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+    for r, row in enumerate(rows, 5):
+        for c, col in enumerate(cols, 1):
+            text, failed = row.get(col, ("-", False))
+            cell = ws.cell(r, c, text)
+            cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+            cell.alignment = Alignment(vertical="top", wrap_text=True,
+                                       horizontal="left" if col in ("Case", "Flags") else "center")
+            if failed:
+                cell.fill = PatternFill("solid", fgColor=FAIL_FILL)
+                cell.font = Font(bold=True, color="9C0006")
+            elif col == "Result" and text == "PASS":
+                cell.fill = PatternFill("solid", fgColor=PASS_FILL)
+                cell.font = Font(bold=True, color="006100")
+    for c, col in enumerate(cols, 1):
+        ws.column_dimensions[get_column_letter(c)].width = widths.get(col, 14)
+    ws.freeze_panes = "B5"
 
 
 def raw_sheet(results: list[dict]) -> pd.DataFrame:
@@ -937,17 +945,26 @@ def _plain_sheet(ws, df: pd.DataFrame, widths: dict | None = None) -> None:
 
 
 def write_excel(results: list[dict], path: str, manifest: dict, skipped: list[str],
-                cfg: dict = CONFIG) -> None:
+                cfg: dict = CONFIG, others: list[dict] | None = None) -> None:
     """
-    One sheet per mode with the report tables (overview, then results), the
-    FSM insensitivity table, criteria (Table 4-11), and info / raw / flags.
+    First tab: Summary, every case with pass / FAIL (failed cells red). Then
+    one sheet per mode with the report tables (overview, then results), the
+    FSM insensitivity table, and info / flags / raw.
+    others: cases not evaluated ({name, mode, status, reason}).
     """
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
+    others = others or []
     ramps = {MODES.get(str(e.get("type", "")).upper()) for e in manifest.get("cases", [])
              if e.get("variant") == "Ramp" or "ramp" in str(e.get("name", "")).lower()}
     wb = Workbook()
-    wb.remove(wb.active)
+    ws = wb.active
+    ws.title = "Summary"
+    write_summary(ws, summary_rows(results, others, cfg),
+                  f"Frequency response compliance summary ({manifest.get('run_tag') or 'run'})",
+                  SUMMARY_COLS, {"Case": 16, "Mode": 10, "Result": 10, "Thresholds": 18,
+                                 "Droop": 18, "Error": 18, "Ti": 22, "Ts": 26,
+                                 "Oscillation": 13, "Insensitivity": 16, "Flags": 60})
     for r in sorted(results, key=lambda x: (MODE_ORDER + ("FSM-INS",)).index(x["mode"])):
         m = r["mode"]
         if m == "FSM-INS":
@@ -972,9 +989,6 @@ def write_excel(results: list[dict], path: str, manifest: dict, skipped: list[st
             ws.column_dimensions[get_column_letter(c)].width = w
         ws.sheet_properties.pageSetUpPr.fitToPage = True   # print / PDF: one page wide
         ws.page_setup.fitToHeight = 0
-    _plain_sheet(wb.create_sheet("criteria"), criteria_sheet(results, cfg),
-                 {"No.": 5, "Criterion": 28, "Requirement": 34, "LFSM-O": 30, "LFSM-U": 30,
-                  "FSM": 40, "Verdict": 16, "Note": 50})
     _plain_sheet(wb.create_sheet("info"), info_sheet(results, manifest, skipped, cfg),
                  {"Item": 22, "Value": 90})
     _plain_sheet(wb.create_sheet("flags"), flags_sheet(results),
@@ -1069,22 +1083,28 @@ def run(folder: str, out: str | None = None, plots: bool = False,
     with open(mpath, "r", encoding="utf-8") as f:
         manifest = json.load(f)
     out = out or os.path.join(folder, "freq_results.xlsx")
-    results, skipped = [], []
+    results, skipped, others = [], [], []
+
+    def other(name, entry, status, reason):
+        skipped.append(f"{name}: {reason}")
+        others.append({"name": name, "mode": MODES.get(str(entry.get("type", "")).upper()),
+                       "status": status, "reason": reason})
+
     for entry in manifest.get("cases", []):
         name = entry.get("name", "?")
         if entry.get("variant") == "Ramp" or "ramp" in name.lower():
-            skipped.append(f"{name}: ramp evaluation not implemented yet")
+            other(name, entry, "not evaluated", "ramp evaluation not implemented yet")
             _say(f"{name}: skipped (ramp evaluation not implemented yet)")
             continue
         if entry.get("export_status") != "ok":
-            skipped.append(f"{name}: export status '{entry.get('export_status')}'")
+            other(name, entry, "no results", f"export status '{entry.get('export_status')}'")
             _warn(f"{name}: skipped (export status '{entry.get('export_status')}')")
             continue
         path = os.path.join(folder, entry.get("csv_file") or name.replace(" ", "_") + ".csv")
         try:
             res = evaluate_case(path, entry, manifest, cfg)
         except Exception as exc:                 # one case never stops the others
-            skipped.append(f"{name}: ERROR {exc}")
+            other(name, entry, "error", f"ERROR {exc}")
             _warn(f"ERROR {name}: {exc}")
             continue
         results.append(res)
@@ -1094,12 +1114,15 @@ def run(folder: str, out: str | None = None, plots: bool = False,
                 plot_case(res, path, os.path.join(os.path.dirname(os.path.abspath(out)), "plots"), cfg)
             except Exception as exc:
                 _warn(f"   plot failed: {exc}")
-    if not results:
+    if not results and not others:
         _warn("No case evaluated.")
         return 1
-    write_excel(results, out, manifest, skipped, cfg)
-    _say(f"\nWritten: {out}  ({len(results)} case(s))")
-    return 0
+    write_excel(results, out, manifest, skipped, cfg, others)
+    _say("\nSUMMARY")
+    for row in summary_rows(results, others, cfg):
+        _say(f"   {row['Case'][0]:16s} {row['Result'][0]}")
+    _say(f"\nWritten: {out}  ({len(results)} case(s) evaluated)")
+    return 0 if results else 1
 
 
 def main(argv: list[str] | None = None) -> int:

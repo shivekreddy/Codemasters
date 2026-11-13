@@ -252,13 +252,14 @@ def test_insensitivity_pass(tmp_path):
                                      "response present, right direction", "back at P0"]
     assert round(res["steps"][1]["P_sim"], 2) == 132.08
     assert round(res["steps"][4]["P_sim"], 2) == 133.36
-    crit = fq.criteria_sheet([res])
-    assert crit.loc[crit["No."] == 7, "Verdict"].item() == "pass"
+    row = fq.case_summary(res)
+    assert row["Insensitivity"] == ("pass", False) and row["Result"] == ("PASS", False)
 
 
 def test_insensitivity_response_at_10mHz_fails(tmp_path):
     res = eval_synth(tmp_path, INS_EV, "FSMINS", "FSM-INS", response=band_response(0.0))
     assert not res["insens"][0]["pass"]                 # +10 mHz responded
+    assert fq.case_summary(res)["Result"] == ("FAIL", True)
 
 
 def test_insensitivity_blocked_response_fails(tmp_path):
@@ -283,13 +284,33 @@ def test_run_missing_columns_and_ramp(tmp_path):
     out = os.path.join(d, "freq_results.xlsx")
     assert fq.run(d, out) == 0
     x = pd.read_excel(out, sheet_name=None)
-    assert {"info", "LFSM-O", "criteria", "raw", "flags"} <= set(x)
+    assert list(x)[0] == "Summary"
+    assert {"info", "LFSM-O", "raw", "flags"} <= set(x)
     skipped = " ".join(map(str, x["info"]["Value"]))
     assert "missing columns" in skipped and "ramp evaluation not implemented" in skipped
     assert "no_result_data" in skipped
-    crit = x["criteria"]
-    assert crit.loc[crit["No."] == 7, "Verdict"].item() == "not demonstrated"
-    assert crit.loc[crit["No."] == 8, "Verdict"].item() == "pending"
+    # Summary: every manifest case listed, failed / error cells red
+    import openpyxl
+    ws = openpyxl.load_workbook(out)["Summary"]
+    cols = [c.value for c in ws[4]]
+    res_col = cols.index("Result") + 1
+    rows = {ws.cell(r, 1).value: ws.cell(r, res_col) for r in range(5, ws.max_row + 1)}
+    assert set(rows) == {"LFSMO Step", "LFSMU Step", "LFSMO Ramp", "FSM Step"}
+    assert rows["LFSMO Step"].value == "PASS"
+    assert rows["LFSMU Step"].value == "ERROR"
+    assert rows["FSM Step"].value == "NO RESULTS"
+    assert rows["LFSMO Ramp"].value == "not evaluated"
+    red = lambda c: c.fill.fgColor.rgb.endswith(fq.FAIL_FILL)
+    assert red(rows["LFSMU Step"]) and red(rows["FSM Step"])
+    assert not red(rows["LFSMO Step"]) and not red(rows["LFSMO Ramp"])
+
+
+def test_summary_marks_failed_criterion_red(tmp_path):
+    ev = [(0, 50.0), (30, 50.2), (60, 50.0)]
+    resp = lambda k, dp: -0.08 * P0 if k == 0 else 0.08 * P0   # FSM active in an LFSM case
+    res = eval_synth(tmp_path, ev, "LFSMO", "LFSM-O", response=resp)
+    row = fq.case_summary(res)
+    assert row["Thresholds"][1] and row["Result"] == ("FAIL", True)
 
 
 def test_run_without_manifest(tmp_path):
