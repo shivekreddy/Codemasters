@@ -296,7 +296,7 @@ def test_report_tables_layout(tmp_path):
     assert [c.value for c in ws[2]][:len(fc.REPORT_HEAD_POC)] == fc.REPORT_HEAD_POC
     assert ws.cell(2, len(fc.REPORT_HEAD_POC) + 1).value is None
     assert ws.cell(3, 1).value == "1P-5U-Q0" and ws.cell(3, 2).number_format == "0.00"
-    # GU table: Ts equals Ti,90 in the sample (within band after rise) -> "-"
+    # GU table: Ti,90 and Ts both as numbers, also when equal (as in the sample)
     gu_head = [r for r in range(1, ws.max_row + 1) if ws.cell(r, 7).value == "Ti,90 [ms]"][0]
-    assert isinstance(ws.cell(gu_head + 1, 7).value, (int, float))
-    assert ws.cell(gu_head + 1, 8).value == "-"
+    ti, ts = ws.cell(gu_head + 1, 7).value, ws.cell(gu_head + 1, 8).value
+    assert isinstance(ti, (int, float)) and isinstance(ts, (int, float)) and ti == ts

@@ -787,8 +787,8 @@ def report_rows(results: list[dict], fault: str, key: str, seq: str) -> list[lis
     """
     One report table: rows of (value, number format) for location `key`
     (POC / GU1 / GU2) and sequence pos / neg. GU tables add Ti,90 and Ts [ms]:
-    "N/A" where FFCI does not apply (residual voltage <= 0.15 pu); Ts "-" when
-    it equals Ti,90 (report convention), a number only where they differ.
+    "N/A" where FFCI does not apply (residual voltage <= 0.15 pu). Ti,90 and
+    Ts are always shown as numbers, also when they are equal.
     """
     u, i, k = ("U1", "Iq1", "k1") if seq == "pos" else ("U2", "Iq2", "k2")
     rows = []
@@ -807,12 +807,9 @@ def report_rows(results: list[dict], fault: str, key: str, seq: str) -> list[lis
             if not r.get("ffci_applies"):
                 row += [("N/A", None), ("N/A", None)]
             else:
+                # both always as numbers, also when Ts = Ti,90
                 row.append(("-", None) if ti is None else (_rh(ti, 0), "0"))
-                # report convention: "-" when Ts = Ti,90 (rose straight into
-                # the band and stayed there); a number only where they differ
-                same = ("within band after rise" in (r.get(f"ti_ts_{seq}_notes") or "")
-                        or (ti is not None and ts is not None and _rh(ti, 0) == _rh(ts, 0)))
-                row.append(("-", None) if ts is None or same else (_rh(ts, 0), "0"))
+                row.append(("-", None) if ts is None else (_rh(ts, 0), "0"))
         rows.append(row)
     return rows
 
