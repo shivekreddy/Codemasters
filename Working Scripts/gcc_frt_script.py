@@ -21,7 +21,12 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 5.7
+# Version : 5.8
+#
+# CHANGELOG v5.7 -> v5.8
+# ----------------------
+#   * Folders come from ONE place: the project config 'paths: root:'. The run
+#     manifest is written to <root>\Run Manifests (was results.output_dir).
 #
 # CHANGELOG v5.6 -> v5.7
 # ----------------------
@@ -104,7 +109,7 @@
 #     opposite sign. SC.qsetp is now written as QSETP_SIGN x qsetp, so the
 #     Qmax case writes -q_factor x Pmax. Case lists and the manifest keep the
 #     plant convention (Qmax = +q_factor x Pmax, generation positive), which
-#     is what gcc_evaluate_frt.py compares the measured pre-fault Q against.
+#     is what frt_check.py compares the measured pre-fault Q against.
 #
 
 import sys
@@ -830,7 +835,7 @@ def preflight(app, cfg, gc_cfg, sim_cfg, elem_cfg, out_dir, run_sim_only):
 # 7.  MAIN
 # ==============================================================================
 
-CONFIG_SECTIONS = ("project", "plant", "grid_code", "elements", "results",
+CONFIG_SECTIONS = ("project", "plant", "grid_code", "elements", "paths",
                    "simulation")
 
 
@@ -872,7 +877,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC FRT Automation Script v5.7 — starting")
+    app.PrintPlain("  GCC FRT Automation Script v5.8 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -888,7 +893,7 @@ def _run(app):
     plant_cfg = cfg["plant"]
     sim_cfg   = cfg["simulation"]
     elem_cfg  = cfg["elements"]
-    out_dir   = cfg["results"]["output_dir"]
+    out_dir   = gcc.results_dir(cfg, "manifests")    # <paths.root>\Run Manifests
 
     gc_path = cfg["grid_code"]["file"]
     if not os.path.isabs(gc_path):
@@ -1352,13 +1357,12 @@ def _run(app):
 
     # --------------------------------------------------------------------------
     # 7.11  Results export
-    #        Handled EXCLUSIVELY by gcc_export_frt.py (one CSV per case
-    #        + export_manifest.json — the evaluation tool's contract).
+    #        Handled by gcc_export_raw_results.py (one folder per case,
+    #        one CSV per plot page: the input of frt_check.py).
     # --------------------------------------------------------------------------
     if not setup_only:
         app.PrintPlain(
-            "\nResults export: run gcc_export_frt.py to "
-            "write one CSV per case."
+            "\nResults export: run gcc_export_raw_results.py, then frt_check.py."
         )
 
     # --------------------------------------------------------------------------
@@ -1395,7 +1399,7 @@ def _run(app):
                 else "post_hoc_result_length" if comtasks_used and not setup_only
                 else "none (setup only)"
             ),
-            "script_version": "5.7",
+            "script_version": "5.8",
         },
     )
     app.PrintPlain(f"\nRun manifest : {manifest_path}")
@@ -1446,7 +1450,7 @@ def _run(app):
 
     app.PrintPlain(f"\n  Manifest : {manifest_path}")
     if not setup_only:
-        app.PrintPlain("  Export   : run gcc_export_frt.py")
+        app.PrintPlain("  Export   : run gcc_export_raw_results.py")
     app.PrintPlain("=" * 68)
 
 

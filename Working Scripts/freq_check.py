@@ -7,18 +7,22 @@ Requirements: NBNL PGMCV 2.0 §4.2.1 (LFSM-O), §4.2.2 (LFSM-U), §4.2.3 (FSM);
 Netcode elektriciteit Art. 3.13 sub 4, Art. 3.24 sub 2 and 3. Method as DNV
 report 25-1670 Rev. 2, Tables 4-2 to 4-11 (accepted by TenneT).
 
-Input: the flat "Freq Raw Data" folder written by gcc_export_freq.py:
+Input: one run folder in "Freq Raw Data", written by gcc_export_freq.py:
     LFSMO_Step.csv, LFSMU_Step.csv, FSM_Step.csv, FSMINS_Step.csv, ...
     export_manifest.json   (event times, psetp, missing_columns)
 Step event times come from the manifest; they are not detected in the data.
 Ramp cases are not evaluated yet (skipped with a message).
 
-Usage, from PowerFactory (ComPython):
-    set PF_DATA_FOLDER (and optionally PF_OUT_FILE / PF_PLOTS) below, point a
-    ComPython object at this script and execute it.
+Folders: from the project config next to this script (paths.root). Input is
+the latest run in <root>\\Freq Raw Data (or paths.freq_run); the workbook goes
+to <root>\\Freq Results\\<run>\\freq_results.xlsx, plots next to it.
+
+Usage, from PowerFactory (ComPython): point a ComPython object at this script
+and execute it.
 
 Usage, command line (also used by the tests):
-    python freq_check.py <Freq Raw Data folder> [--out freq_results.xlsx] [--plots]
+    python freq_check.py [<run folder>] [--out freq_results.xlsx] [--plots]
+    (no folder: the folders from the project config, as in PowerFactory)
 
 Reference samples are taken by index (duplicate timestamps at the events):
 the last sample before an event and the last sample before the next event,
@@ -55,12 +59,7 @@ except ImportError as _exc:
 # ==============================================================================
 # SETTINGS FOR RUNNING FROM POWERFACTORY (ComPython): edit before executing
 # ==============================================================================
-# The "Freq Raw Data" folder written by gcc_export_freq.py (CSV files plus
-# export_manifest.json).
-PF_DATA_FOLDER = r"C:\Users\SHIRED\Downloads\Results Export\Freq Raw Data"
-
-# Output workbook; None -> freq_results.xlsx in PF_DATA_FOLDER
-PF_OUT_FILE = None
+# Folders: none to set here (project config paths.root, see the docstring).
 
 # True -> also write PNG plots (needs matplotlib) to a "plots" folder next to
 # the workbook
@@ -1125,13 +1124,44 @@ def run(folder: str, out: str | None = None, plots: bool = False,
     return 0 if results else 1
 
 
+def default_folders(script_file: str | None = None) -> tuple[str, str]:
+    """
+    Input run folder and output workbook from the project config next to this
+    script (one source for all folders, see gcc_common.py section 0):
+        input : <paths.root>\\Freq Raw Data\\<run>
+        output: <paths.root>\\Freq Results\\<run>\\freq_results.xlsx
+    <run> is paths.freq_run if set, else the latest FREQ_* run folder.
+    """
+    script_file = script_file or __file__
+    here = os.path.dirname(os.path.abspath(script_file))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    sys.modules.pop("gcc_common", None)          # always this folder's gcc_common.py
+    import gcc_common as gcc
+    cfg = gcc.load_yaml(gcc.resolve_config_path(script_file))
+    raw = gcc.results_dir(cfg, "freq_raw", create=False)
+    run_name = gcc.run_name_setting(cfg, "FREQ")
+    data = os.path.join(raw, run_name) if run_name else gcc.latest_run_dir(raw, "FREQ")
+    if not data or not os.path.isdir(data):
+        raise RuntimeError(f"No FREQ raw data found in {raw}"
+                           + (f" for paths.freq_run = '{run_name}'" if run_name else "")
+                           + ". Run gcc_export_freq.py first.")
+    out_dir = gcc.results_dir(cfg, "freq_results", os.path.basename(data.rstrip("/\\")))
+    return data, os.path.join(out_dir, "freq_results.xlsx")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Command line entry point."""
     ap = argparse.ArgumentParser(description="LFSM-O / LFSM-U / FSM compliance checker")
-    ap.add_argument("folder", help="'Freq Raw Data' folder (CSV files + export_manifest.json)")
-    ap.add_argument("--out", default=None, help="default: freq_results.xlsx in the folder")
+    ap.add_argument("folder", nargs="?", default=None,
+                    help="run folder (CSV files + export_manifest.json); default: from the project config")
+    ap.add_argument("--out", default=None, help="default: freq_results.xlsx (in Freq Results\\<run> "
+                                                "with the config folders, else in the folder)")
     ap.add_argument("--plots", action="store_true")
     a = ap.parse_args(argv)
+    if a.folder is None:
+        folder, out = default_folders()
+        return run(folder, a.out or out, a.plots)
     return run(a.folder, a.out, a.plots)
 
 
@@ -1149,19 +1179,19 @@ def run_in_powerfactory(app) -> None:
     global _say, _warn
     _say, _warn = app.PrintPlain, app.PrintWarn
     app.ClearOutputWindow()
-    out = PF_OUT_FILE or os.path.join(PF_DATA_FOLDER, "freq_results.xlsx")
     app.PrintPlain("=" * 72)
     app.PrintPlain("  LFSM-O / LFSM-U / FSM compliance check")
     app.PrintPlain("=" * 72)
-    app.PrintPlain(f"  Data   : {PF_DATA_FOLDER}")
+    try:
+        folder, out = default_folders()
+    except Exception as exc:
+        app.PrintError(f"Folders from the project config: {exc}")
+        return
+    app.PrintPlain(f"  Data   : {folder}")
     app.PrintPlain(f"  Output : {out}" + ("   (+ plots)" if PF_PLOTS else ""))
     app.PrintPlain(f"  Python : {sys.prefix}\n")
-    if not os.path.isdir(PF_DATA_FOLDER):
-        app.PrintError(f"Data folder not found:\n  {PF_DATA_FOLDER}\n"
-                       "Set PF_DATA_FOLDER at the top of freq_check.py.")
-        return
     try:
-        run(PF_DATA_FOLDER, out, PF_PLOTS)
+        run(folder, out, PF_PLOTS)
     except PermissionError as exc:
         app.PrintError(f"Could not write the output: is {os.path.basename(out)} "
                        f"open in Excel? ({exc})")

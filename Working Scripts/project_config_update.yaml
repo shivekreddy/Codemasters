@@ -105,12 +105,24 @@ plot_labels:
 
 # ==============================================================================
 #  <<<  USER INPUT REQUIRED  >>>
-#  SECTION 5 — RESULTS OUTPUT
-#  Folder where CSV results are saved after simulations run.
+#  SECTION 5: FOLDERS (the ONLY place a folder is set; every script reads it)
+#  All output goes under 'root' (created if missing), in these subfolders:
+#    Run Manifests\                         simulation run manifests
+#    FRT Raw Data\<FRT run>\<case>\*.csv     gcc_export_raw_results.py
+#    Freq Raw Data\<FREQ run>\*.csv          gcc_export_freq.py
+#    PowerFactory Plots\FRT\<FRT run>\...    gcc_export_plots.py
+#    PowerFactory Plots\Frequency\<FREQ run>\...
+#    FRT Results\<FRT run>\frt_results.xlsx  frt_check.py
+#    Freq Results\<FREQ run>\freq_results.xlsx  freq_check.py
+#  <run> = the PowerFactory run folder (e.g. FRT_2026-11-11_13-56-23). By
+#  default every script uses the LATEST run; set frt_run / freq_run to the
+#  name of a run folder to use an older one.
 # ==============================================================================
 
-results:
-  output_dir: 'C:\Users\SHIRED\Downloads'   # Use double backslashes on Windows
+paths:
+  root: 'C:\Users\SHIRED\Downloads\Results Export'   # single quotes: backslashes are fine
+  frt_run:  null    # null = latest FRT_* run, or e.g. 'FRT_2026-11-11_13-56-23 (PPC Enabled)'
+  freq_run: null    # null = latest FREQ_* run
 
 
 # ==============================================================================

@@ -11,14 +11,17 @@ Input: one folder per case, e.g. "FRT 1PH 0.05 Q0/", holding POC.csv,
 "GU Terminal 1.csv" (HVC) and "GU Terminal 2.csv" (Novar), as written by
 gcc_export_raw_results.py: time_s + 10 signals per file.
 
-Usage — from PowerFactory (ComPython):
-    set PF_CASES_FOLDER (and optionally the other PF_ settings) below, point a
-    ComPython object at this script and execute it. Output goes to the
-    PowerFactory output window, results.xlsx into the cases folder.
+Folders: from the project config next to this script (paths.root). Input is
+the latest run in <root>\\FRT Raw Data (or paths.frt_run); the workbook goes
+to <root>\\FRT Results\\<run>\\frt_results.xlsx, plots next to it.
 
-Usage — command line (also used by the tests):
-    python frt_check.py <folder with case folders> [--out results.xlsx]
+Usage, from PowerFactory (ComPython): point a ComPython object at this script
+and execute it. Output goes to the PowerFactory output window.
+
+Usage, command line (also used by the tests):
+    python frt_check.py [<folder with case folders>] [--out frt_results.xlsx]
                         [--plots] [--tf 10.0] [--tc 10.25]
+    (no folder: the folders from the project config, as in PowerFactory)
 
 Reference points are taken at exact samples (by index): the last sample
 before the fault-inception jump and the last sample before the clearance
@@ -52,12 +55,7 @@ except ImportError as _exc:
 # ==============================================================================
 # SETTINGS FOR RUNNING FROM POWERFACTORY (ComPython) — edit before executing
 # ==============================================================================
-# Folder holding the case folders ("FRT 1PH 0.05 Q0", ...), as written by
-# gcc_export_raw_results.py. A single case folder works too.
-PF_CASES_FOLDER = r"C:\Users\SHIRED\OneDrive - DNV\Projects\GCC Script Development\Codemasters-1\FRT_2026-11-11_13-56-23 (PPC Enabled)"
-
-# Excel output. None = results.xlsx inside PF_CASES_FOLDER
-PF_OUT_FILE = None
+# Folders: none to set here (project config paths.root, see the docstring).
 
 # Ti,90 plots per case (PNG, in a "plots" folder next to the Excel file)
 PF_PLOTS = True
@@ -1242,16 +1240,47 @@ def run(folder: str, out: str, plots: bool = False, tf: float | None = None,
     return 0
 
 
+def default_folders(script_file: str | None = None) -> tuple[str, str]:
+    """
+    Input run folder and output workbook from the project config next to this
+    script (one source for all folders, see gcc_common.py section 0):
+        input : <paths.root>\\FRT Raw Data\\<run>
+        output: <paths.root>\\FRT Results\\<run>\\frt_results.xlsx
+    <run> is paths.frt_run if set, else the latest FRT_* run folder.
+    """
+    script_file = script_file or __file__
+    here = os.path.dirname(os.path.abspath(script_file))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    sys.modules.pop("gcc_common", None)          # always this folder's gcc_common.py
+    import gcc_common as gcc
+    cfg = gcc.load_yaml(gcc.resolve_config_path(script_file))
+    raw = gcc.results_dir(cfg, "frt_raw", create=False)
+    run_name = gcc.run_name_setting(cfg, "FRT")
+    data = os.path.join(raw, run_name) if run_name else gcc.latest_run_dir(raw, "FRT")
+    if not data or not os.path.isdir(data):
+        raise RuntimeError(f"No FRT raw data found in {raw}"
+                           + (f" for paths.frt_run = '{run_name}'" if run_name else "")
+                           + ". Run gcc_export_raw_results.py first.")
+    out_dir = gcc.results_dir(cfg, "frt_results", os.path.basename(data.rstrip("/\\")))
+    return data, os.path.join(out_dir, "frt_results.xlsx")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Command line entry point."""
     ap = argparse.ArgumentParser(description="FRT / FFCI compliance checker")
-    ap.add_argument("folder", help="folder containing the case folders")
-    ap.add_argument("--out", default="results.xlsx")
+    ap.add_argument("folder", nargs="?", default=None,
+                    help="folder containing the case folders (default: from the project config)")
+    ap.add_argument("--out", default=None,
+                    help="default: frt_results.xlsx (in FRT Results\\<run> with the config folders)")
     ap.add_argument("--plots", action="store_true")
     ap.add_argument("--tf", type=float, default=None, help="override t_f [s]")
     ap.add_argument("--tc", type=float, default=None, help="override t_c [s]")
     a = ap.parse_args(argv)
-    return run(a.folder, a.out, a.plots, a.tf, a.tc)
+    if a.folder is None:
+        folder, out = default_folders()
+        return run(folder, a.out or out, a.plots, a.tf, a.tc)
+    return run(a.folder, a.out or "frt_results.xlsx", a.plots, a.tf, a.tc)
 
 
 def powerfactory_app():
@@ -1268,19 +1297,19 @@ def run_in_powerfactory(app) -> None:
     global _say, _warn
     _say, _warn = app.PrintPlain, app.PrintWarn
     app.ClearOutputWindow()
-    out = PF_OUT_FILE or os.path.join(PF_CASES_FOLDER, "results.xlsx")
     app.PrintPlain("=" * 72)
     app.PrintPlain("  FRT / FFCI compliance check")
     app.PrintPlain("=" * 72)
-    app.PrintPlain(f"  Cases  : {PF_CASES_FOLDER}")
+    try:
+        folder, out = default_folders()
+    except Exception as exc:
+        app.PrintError(f"Folders from the project config: {exc}")
+        return
+    app.PrintPlain(f"  Cases  : {folder}")
     app.PrintPlain(f"  Output : {out}" + ("   (+ plots)" if PF_PLOTS else ""))
     app.PrintPlain(f"  Python : {sys.prefix}\n")
-    if not os.path.isdir(PF_CASES_FOLDER):
-        app.PrintError(f"Cases folder not found:\n  {PF_CASES_FOLDER}\n"
-                       "Set PF_CASES_FOLDER at the top of frt_check.py.")
-        return
     try:
-        run(PF_CASES_FOLDER, out, PF_PLOTS, PF_TF, PF_TC)
+        run(folder, out, PF_PLOTS, PF_TF, PF_TC)
     except PermissionError as exc:
         app.PrintError(f"Could not write the output — is {os.path.basename(out)} "
                        f"open in Excel? ({exc})")

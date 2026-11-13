@@ -1,11 +1,11 @@
 # ==============================================================================
-# GCC — Raw Results Export per Plot (stand-alone)
+# GCC — Raw Results Export per Plot (FRT)
 # ==============================================================================
 # Exports the simulation results of every study case in ONE study case folder,
 # split the same way as the FRT plot pages: one folder per study case, and in
 # it one CSV per plot page holding exactly that page's variables.
 #
-# Output:  <OUTPUT_DIR>\<STUDY_CASE_FOLDER>\
+# Output:  <paths.root>\FRT Raw Data\<FRT run folder>\
 #            FRT 1PH 0.05 Q0\
 #              POC.csv               POC busbar voltages + POC breaker P/Q/I
 #              GU Terminal.csv       one plant:  GU busbar + inverter
@@ -25,10 +25,12 @@
 # Cases without simulation results are skipped and listed at the end. A
 # variable that is not in a case's result file is left blank and listed.
 #
-# Usage:
-#   1. Set OUTPUT_DIR, STUDY_CASE_FOLDER and CONFIG_FILE below
-#   2. Point a ComPython object at this script and run it from PowerFactory
-# Dependencies: PyYAML (as for the other scripts). No other script needed.
+# Which run and where to: from the project config next to this script
+# (paths.root; the latest FRT_* run, or paths.frt_run if set). Nothing to set
+# in this script.
+#
+# Usage: point a ComPython object at this script and run it from PowerFactory.
+# Dependencies: PyYAML, gcc_common.py in the same folder.
 # ==============================================================================
 
 import os
@@ -36,22 +38,14 @@ import csv
 import json
 from datetime import datetime
 
+import sys
+
 import yaml
 import powerfactory
 
-
-# ------------------------------------------------------------------------------
-# SETTINGS
-# ------------------------------------------------------------------------------
-# Folder the results are written to (created if it does not exist)
-OUTPUT_DIR = r"C:\Users\SHIRED\Downloads\Results Export\Raw Results"
-
-# Study case folder to export, as shown under Study Cases
-# (searched for anywhere under Study Cases)
-STUDY_CASE_FOLDER = "FRT_2026-11-10_09-12-44"
-
-# Project config the FRT cases were created with (element names, plot_labels)
-CONFIG_FILE = r"C:\Users\SHIRED\OneDrive - DNV\Projects\10512392 - NNWZ - GCC PV type D\Novar\FRT Script\project_config_update.yaml"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.modules.pop("gcc_common", None)      # always load gcc_common.py fresh from this folder
+import gcc_common as gcc                 # noqa: E402
 
 
 # ------------------------------------------------------------------------------
@@ -95,7 +89,7 @@ def load_pages(config_file):
     """
     if not os.path.isfile(config_file):
         raise RuntimeError(f"Project config not found:\n  {config_file}\n"
-                           "Check CONFIG_FILE.")
+                           "Put project_config_update.yaml next to this script.")
     with open(config_file, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
     elem = cfg.get("elements")
@@ -152,7 +146,7 @@ def find_folder(app, name):
     found = [f for f in study.GetContents("*.IntFolder", 1) if f.loc_name == name]
     if not found:
         raise RuntimeError(f"Study case folder '{name}' not found under Study "
-                           f"Cases. Check STUDY_CASE_FOLDER.")
+                           f"Cases. Check paths.frt_run in the project config.")
     if len(found) > 1:
         app.PrintWarn(f"  {len(found)} folders named '{name}' found — exporting "
                       f"the first one.")
@@ -232,10 +226,17 @@ def main():
     app = powerfactory.GetApplication()
     app.ClearOutputWindow()
 
-    pages   = load_pages(CONFIG_FILE)
-    folder  = find_folder(app, STUDY_CASE_FOLDER)
-    out_dir = os.path.join(OUTPUT_DIR, folder.loc_name)
-    os.makedirs(out_dir, exist_ok=True)
+    config_file = gcc.resolve_config_path(__file__)
+    cfg     = gcc.load_yaml(config_file)
+    pages   = load_pages(config_file)
+    run     = gcc.run_name_setting(cfg, "FRT")
+    if run:
+        folder = find_folder(app, run)
+    else:
+        folder = gcc.find_latest_run_folder(app.GetProjectFolder("study"), "FRT")
+        if folder is None:
+            raise RuntimeError("No FRT_* run folder in Study Cases. Run gcc_frt_script.py first.")
+    out_dir = gcc.results_dir(cfg, "frt_raw", folder.loc_name)
     cases = sorted(folder.GetContents("*.IntCase", 1), key=lambda c: c.loc_name)
 
     app.PrintPlain("=" * 72)
@@ -276,7 +277,7 @@ def main():
     manifest = {
         "study_case_folder":  folder.loc_name,
         "exported":           datetime.now().isoformat(timespec="seconds"),
-        "project_config":     CONFIG_FILE,
+        "project_config":     config_file,
         "output_dir":         out_dir,
         "pages":              [p for p, _ in pages],
         "time_base_note":     "Time step may be non-uniform: interpolate on time_s.",

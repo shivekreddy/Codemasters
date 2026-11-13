@@ -26,7 +26,7 @@
 #   4.  Run-folder helpers               make_run_tag, find_latest_run_folder
 #   5.  Load flow configuration          configure_loadflow
 #   6.  Plotting helpers                 set_xrange, add_x_ref_line, make_graph
-#   0.  Raw data export location         RAW_DATA_ROOT, raw_data_dir
+#   0.  Results folders                  results_dir, run_name_setting, latest_run_dir
 #   7.  CSV export (FindColumn-based)    export_case_to_csv, export_raw_results
 #   8.  Run manifest                     write_run_manifest
 #   9.  UI safety wrapper                pf_session
@@ -65,35 +65,76 @@ from contextlib import contextmanager
 
 
 # ==============================================================================
-# 0.  RAW DATA EXPORT LOCATION   <<< SET THIS ONCE
+# 0.  RESULTS FOLDERS: one source, the project config
 # ==============================================================================
-# Create this folder yourself first; the export scripts will not create it.
-# Inside it they create (and refill on every export):
-#     <RAW_DATA_ROOT>\FRT Raw Data\     <- gcc_export_frt.py
-#     <RAW_DATA_ROOT>\Freq Raw Data\    <- gcc_export_freq.py
-RAW_DATA_ROOT = r"C:\Users\SHIRED\Downloads\Results Export"
+# Every script writes under ONE folder, set in the project config:
+#
+#     paths:
+#       root: 'C:\...\Results Export'
+#
+# and creates these subfolders itself (missing folders are created):
+#     Run Manifests\                         simulation run manifests
+#     FRT Raw Data\<FRT run>\<case>\*.csv     gcc_export_raw_results.py
+#     Freq Raw Data\<FREQ run>\*.csv          gcc_export_freq.py
+#     PowerFactory Plots\FRT\<FRT run>\...    gcc_export_plots.py
+#     PowerFactory Plots\Frequency\<FREQ run>\...
+#     FRT Results\<FRT run>\frt_results.xlsx  frt_check.py
+#     Freq Results\<FREQ run>\freq_results.xlsx  freq_check.py
+# <run> is the PowerFactory run folder name (FRT_<date>_<time>, may be
+# renamed with text after it, e.g. "... (PPC Enabled)"). By default every
+# script uses the LATEST run; paths.frt_run / paths.freq_run pick another.
 
-RAW_DATA_FOLDERS = {
-    "FRT":  "FRT Raw Data",
-    "FREQ": "Freq Raw Data",
+RESULT_FOLDERS = {
+    "manifests":    ("Run Manifests",),
+    "frt_raw":      ("FRT Raw Data",),
+    "freq_raw":     ("Freq Raw Data",),
+    "frt_plots":    ("PowerFactory Plots", "FRT"),
+    "freq_plots":   ("PowerFactory Plots", "Frequency"),
+    "frt_results":  ("FRT Results",),
+    "freq_results": ("Freq Results",),
 }
 
 
-def raw_data_dir(study, create=True):
+def results_root(cfg):
+    """paths.root from the project config (created if missing)."""
+    root = ((cfg or {}).get("paths") or {}).get("root")
+    if not root:
+        raise RuntimeError("No 'paths: root:' in the project config. Add it, e.g.\n"
+                           "  paths:\n    root: 'C:\\Users\\<you>\\Downloads\\Results Export'")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def results_dir(cfg, kind, run=None, create=True):
     """
-    Path of the raw data folder for 'FRT' or 'FREQ' inside RAW_DATA_ROOT.
-    RAW_DATA_ROOT must already exist (it is created by hand, on purpose);
-    the study subfolder is created when create=True.
+    Folder of one kind (see RESULT_FOLDERS) under paths.root, with the run
+    folder name appended when given. Created when create=True.
     """
-    if not os.path.isdir(RAW_DATA_ROOT):
-        raise RuntimeError(
-            f"Raw data folder not found:\n  {RAW_DATA_ROOT}\n"
-            "Create it first, or set RAW_DATA_ROOT at the top of gcc_common.py."
-        )
-    path = os.path.join(RAW_DATA_ROOT, RAW_DATA_FOLDERS[study])
+    path = os.path.join(results_root(cfg), *RESULT_FOLDERS[kind])
+    if run:
+        path = os.path.join(path, run)
     if create:
         os.makedirs(path, exist_ok=True)
     return path
+
+
+def run_name_setting(cfg, study):
+    """paths.frt_run / paths.freq_run: a run folder to use instead of the latest (or None)."""
+    key = {"FRT": "frt_run", "FREQ": "freq_run"}[study]
+    return ((cfg or {}).get("paths") or {}).get(key) or None
+
+
+def latest_run_dir(parent, prefix):
+    """
+    The latest '<prefix>_<timestamp>[ anything]' subfolder (on disk) of
+    parent, ranked by the timestamp in its name. None if there is none.
+    """
+    if not os.path.isdir(parent):
+        return None
+    runs = [(ts, n) for n in os.listdir(parent)
+            if os.path.isdir(os.path.join(parent, n))
+            and (ts := _parse_run_tag(n, prefix)) is not None]
+    return os.path.join(parent, max(runs)[1]) if runs else None
 
 
 # ==============================================================================
@@ -409,17 +450,25 @@ def make_run_tag(prefix):
 def _parse_run_tag(name, prefix):
     """
     Parse the timestamp out of a run-folder name. Accepts both the old
-    DD-MM-YYYY format and the new ISO format. Returns datetime or None.
+    DD-MM-YYYY format and the new ISO format, also with text added after it
+    when the folder was renamed by hand ('FRT_2026-11-11_13-56-23 (PPC
+    Enabled)'). Returns datetime or None.
     """
     stem = name[len(prefix) + 1:] if name.startswith(prefix + "_") else None
-    if not stem:
+    if not stem or len(stem) < 19:
         return None
     for fmt in (_TAG_FMT_ISO, _TAG_FMT_OLD):
         try:
-            return datetime.strptime(stem, fmt)
+            return datetime.strptime(stem[:19], fmt)
         except ValueError:
             continue
     return None
+
+
+def run_tag_of(name, prefix):
+    """'FRT_2026-11-11_13-56-23 (PPC Enabled)' -> 'FRT_2026-11-11_13-56-23' (or None)."""
+    ts = _parse_run_tag(name, prefix)
+    return None if ts is None else f"{prefix}_{name[len(prefix) + 1:][:19]}"
 
 
 def find_latest_run_folder(root_folder, prefix):
@@ -430,7 +479,8 @@ def find_latest_run_folder(root_folder, prefix):
     DD-MM-YYYY folders and new ISO folders rank correctly side by side.
     (Plain string sort on DD-MM-YYYY picks the wrong folder across month
     boundaries — that bug is what this helper replaces.)
-    Unparseable '<prefix>_*' folders are ignored with no error.
+    Unparseable '<prefix>_*' folders are ignored with no error; folders
+    renamed with text after the timestamp are accepted.
     """
     candidates = []
     for f in root_folder.GetContents(f"{prefix}_*.IntFolder"):
@@ -778,9 +828,9 @@ def export_case_to_csv(app, study_case, elm_objects, record_vars, csv_path):
             pass
 
 
-# Completeness tolerance basis per study: must match DTGRD_MAX_S in the
-# simulation scripts (last result time must reach t_stop - 2 x dtgrd_max).
-_EXPORT_DTGRD_MAX_S = {"FRT": 0.01, "FREQ": 0.1}
+# Completeness tolerance basis: must match DTGRD_MAX_S in the frequency
+# simulation script (last result time must reach t_stop - 2 x dtgrd_max).
+_EXPORT_DTGRD_MAX_S = {"FREQ": 0.1}
 
 
 def resolve_config_path(script_file, config_file=None):
@@ -796,30 +846,32 @@ def resolve_config_path(script_file, config_file=None):
 
 def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
     """
-    Export one FRT or FREQ run to <RAW_DATA_ROOT>\\<FRT|Freq> Raw Data\\:
+    Export one frequency run to <paths.root>\\Freq Raw Data\\<run folder>\\:
     one CSV per study case (named after the case) + export_manifest.json.
+    (FRT raw data: gcc_export_raw_results.py, one folder per case.)
 
-    run_tag None -> the latest FRT_* / FREQ_* run folder in Study Cases.
-    Works without results: cases without data are exported as zeros and
-    marked 'no_result_data' in the manifest (the evaluation skips them).
+    run_tag None -> paths.freq_run from the project config, else the latest
+    FREQ_* run folder in Study Cases. Works without results: cases without
+    data are exported as zeros and marked 'no_result_data' in the manifest
+    (the evaluation reports them).
     """
+    if study != "FREQ":
+        raise ValueError("export_raw_results exports frequency runs only; "
+                         "use gcc_export_raw_results.py for FRT.")
     tolerance   = 2.0 * _EXPORT_DTGRD_MAX_S[study]
 
     app.PrintPlain("=" * 68)
     app.PrintPlain(f"  GCC Raw Data Export ({study}) starting")
     app.PrintPlain("=" * 68)
 
-    # --- Destination (checked first: a wrong path fails before any work) -----
-    export_dir = raw_data_dir(study)
-    app.PrintPlain(f"\nExport to : {export_dir}")
-
     # --- Config and elements (a missing element only zeroes its columns) -----
     config_path = resolve_config_path(script_file, config_file)
     app.PrintPlain(f"Config    : {config_path}")
     cfg      = load_yaml(config_path)
+    results_root(cfg)                    # a missing paths.root fails before any work
+    run_tag  = run_tag or run_name_setting(cfg, study)
     elem_cfg = cfg.get("elements", {})
-    record_vars = (record_vars_frt(elem_cfg) if study == "FRT"
-                   else RECORD_VARS_FREQ)
+    record_vars = RECORD_VARS_FREQ
 
     classes = {"poc_busbar": ["ElmTerm"], "poc_breaker": ["ElmCoup"],
                "gu_busbar": ["ElmTerm"], "inverter": ["ElmGenstat", "ElmSym"],
@@ -855,16 +907,20 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
             + f" Run the {study} simulation script first."
         )
     app.PrintPlain(f"\nRun folder: '{sc_folder.loc_name}'")
+    export_dir = results_dir(cfg, "freq_raw", sc_folder.loc_name)
+    app.PrintPlain(f"Export to : {export_dir}")
 
     # --- Case metadata from the run manifest, if the simulation wrote one ----
+    # (named after the run tag the folder had when it was created)
     meta, run_manifest = {}, {}
-    out_dir = (cfg.get("results") or {}).get("output_dir")
-    if out_dir:
-        mpath = os.path.join(out_dir, f"{sc_folder.loc_name}_manifest.json")
-        if os.path.isfile(mpath):
+    man_dir = results_dir(cfg, "manifests", create=False)
+    for tag in dict.fromkeys([sc_folder.loc_name, run_tag_of(sc_folder.loc_name, study)]):
+        mpath = os.path.join(man_dir, f"{tag}_manifest.json") if tag else ""
+        if tag and os.path.isfile(mpath):
             with open(mpath, "r", encoding="utf-8") as f:
                 run_manifest = json.load(f)
             meta = {c["name"]: c for c in run_manifest.get("cases", [])}
+            break
     if not meta:
         app.PrintWarn("Run manifest not found: case metadata (event times, "
                       "setpoints) will be missing from the export manifest.")

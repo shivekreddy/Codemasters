@@ -39,7 +39,12 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 3.1
+# Version : 3.2
+#
+# CHANGELOG v3.1 -> v3.2
+# ----------------------
+#   * Folders come from ONE place: the project config 'paths: root:'. The run
+#     manifest is written to <root>\Run Manifests (was results.output_dir).
 #
 # CHANGELOG v3.0 -> v3.1
 # ----------------------
@@ -549,7 +554,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC Frequency Simulation Script v3.1 — starting")
+    app.PrintPlain("  GCC Frequency Simulation Script v3.2 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -564,7 +569,7 @@ def _run(app):
     plant_cfg = cfg["plant"]
     sim_cfg   = cfg["simulation"]
     elem_cfg  = cfg["elements"]
-    out_dir   = cfg["results"]["output_dir"]
+    out_dir   = gcc.results_dir(cfg, "manifests")    # <paths.root>\Run Manifests
 
     gc_path = cfg["grid_code"]["file"]
     if not os.path.isabs(gc_path):
@@ -938,7 +943,7 @@ def _run(app):
         extra       = {
             "setup_only":     setup_only,
             "run_sim_only":   run_sim_only,
-            "script_version": "3.1",
+            "script_version": "3.2",
             "p_factor":       p_factor,
             "simulation_timing": {
                 "t_start_s":       t_start_s,
