@@ -127,6 +127,8 @@ CONFIG: dict = {
     "damping_start_s": 0.5,
     "damping_window_s": 1.0,
     "damping_abs_tol_MW": 0.2,       # noise floor for "peak-to-peak increased"
+    "p_loss_persist_s": 0.5,         # P below the recovery threshold this long after
+                                     # recovering = active power lost
     "complete_after_tc_s": 5.0,
     "consistency_spread_pu": 0.005,
     # Grid code YAML compared against fault_duration_ms (warning only)
@@ -475,13 +477,47 @@ def longest_run(t: np.ndarray, cond: np.ndarray, t_from: float) -> float:
     return best
 
 
+def p_loss_after_recovery(t: np.ndarray, p: np.ndarray, t_from: float, p_pre: float,
+                          cfg: dict = CONFIG) -> float | None:
+    """
+    Time [s] at which P, having recovered, falls below p_recovery_frac x P,pre
+    again and stays below for at least p_loss_persist_s (a loss of active
+    power after the fault, e.g. a trip or a P command to zero). Searched from
+    t_from (end of the recovery hold). None if P stays recovered.
+    """
+    if not np.isfinite(p_pre) or p_pre <= 0:
+        return None
+    low = p < cfg["p_recovery_frac"] * p_pre
+    j = int(np.searchsorted(t, t_from, side="left"))
+    n = len(t)
+    while j < n:
+        if not low[j]:
+            j += 1
+            continue
+        k = j
+        while k < n and low[k]:
+            k += 1
+        end = t[k] if k < n else t[-1]
+        if end - t[j] >= cfg["p_loss_persist_s"] or (k == n and end - t[j] > 0):
+            # first sample that left the pre-loss level: walk back while P was falling
+            m = j
+            while m > 0 and p[m - 1] < p_pre * (1 - cfg["final_state_frac"]) and t[m - 1] >= t_from:
+                m -= 1
+            return float(t[m])
+        j = k
+    return None
+
+
 def damping_increase(t: np.ndarray, y: np.ndarray, t_c: float,
-                     cfg: dict = CONFIG) -> bool:
+                     cfg: dict = CONFIG, t_end: float | None = None) -> bool:
     """Peak-to-peak of y in consecutive 1 s windows from t_c + 0.5 s must not
-    increase (beyond damping_abs_tol_MW). True = possible undamped oscillation."""
+    increase (beyond damping_abs_tol_MW). True = possible undamped oscillation.
+    t_end: stop before this time (e.g. a loss of active power, which is a
+    single step, not an oscillation)."""
     w, t0 = cfg["damping_window_s"], t_c + cfg["damping_start_s"]
+    t_last = t[-1] if t_end is None else min(t[-1], t_end)
     pp = []
-    while t0 + w <= t[-1] + 1e-9:
+    while t0 + w <= t_last + 1e-9:
         m = window(t, t0, t0 + w)
         if m.any():
             pp.append(float(np.max(y[m]) - np.min(y[m])))
@@ -701,8 +737,24 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
                 ride_ok = False
                 r["flags"].append(f"final state differs: {sig} mean over last "
                                   f"{cfg['final_window_s']} s off by {dev:.4g}")
+    # --- loss of active power after recovery (trip / P command to zero) -------------
+    t_loss = None
+    if "POC" in locs:
+        ls, rec = locs["POC"].scaled, results["POC"].get("p_recovery_s")
+        if rec is not None:
+            t_loss = p_loss_after_recovery(
+                locs["POC"].t, ls["P"], t_c + rec + cfg["p_recovery_hold_s"],
+                ls["P"][i_f], cfg)
+        if t_loss is not None:
+            ride_ok = False
+            fin = window(locs["POC"].t, locs["POC"].t[-1] - cfg["final_window_s"],
+                         locs["POC"].t[-1])
+            v["t_p_loss"] = t_loss
+            flags.append(f"active power lost at {t_loss:.3f} s ({t_loss - t_f:.2f} s after "
+                         f"fault inception, {t_loss - t_c:.2f} s after clearance): POC P "
+                         f"{ls['P'][i_f]:.1f} to {float(np.mean(ls['P'][fin])):.1f} MW")
     osc = [sig for sig in ("P", "Q")
-           if damping_increase(poc.t, poc.scaled[sig], t_c, cfg)]
+           if damping_increase(poc.t, poc.scaled[sig], t_c, cfg, t_end=t_loss)]
     if osc:
         ride_ok = False
         flags.append("possible undamped oscillation (POC " + ", ".join(osc) + ")")
@@ -957,7 +1009,9 @@ def case_summary(res: dict, cfg: dict = CONFIG) -> dict:
     row = {"Case": (case.name, False),
            "PowerFactory case": (os.path.basename(case.folder.rstrip("/\\")), False)}
     rt = res["ride_through"]
-    row["Ride-through"] = ("pass" if rt == "pass" else "FAIL", rt != "pass")
+    t_loss = res["validity"].get("t_p_loss")
+    txt = "pass" if rt == "pass" else (f"FAIL (P lost at {t_loss:.3f} s)" if t_loss else "FAIL")
+    row["Ride-through"] = (txt, rt != "pass")
 
     kv = [r.get(f"k{n}_verdict") for r in gus for n in (1, 2)]
     kv = [x for x in kv if x and not x.startswith("n/a")]

@@ -300,3 +300,39 @@ def test_report_tables_layout(tmp_path):
     gu_head = [r for r in range(1, ws.max_row + 1) if ws.cell(r, 7).value == "Ti,90 [ms]"][0]
     ti, ts = ws.cell(gu_head + 1, 7).value, ws.cell(gu_head + 1, 8).value
     assert isinstance(ti, (int, float)) and isinstance(ts, (int, float)) and ti == ts
+
+
+# ==============================================================================
+# Loss of active power after recovery (not an oscillation)
+# ==============================================================================
+
+def p_trace(loss_at=15.0):
+    """POC P: 176.33 MW, fault 10.0-12.2 s (P 64 MW), recovered, then a step to
+    -0.64 MW at loss_at (like 1P-60U-Qmax). 1 ms steps, duplicate rows at events."""
+    t = np.round(np.arange(9.0, 20.0 + 1e-9, 0.001), 6)
+    p = np.full(t.size, 176.33)
+    p[(t > 10.0) & (t <= 12.2)] = 64.15
+    if loss_at is not None:
+        x = np.clip(t - loss_at, 0, None)
+        p = np.where(t > loss_at, -0.64 + (176.33 + 0.64) * np.exp(-x / 0.003), p)
+    return t, p
+
+
+def test_p_loss_after_recovery_found_with_timing():
+    t, p = p_trace(15.0)
+    i_c = int(np.searchsorted(t, 12.2, side="right")) - 1
+    rec = fc.p_recovery_time(t, p, i_c, 176.33)
+    assert rec is not None and rec < 0.01
+    t_loss = fc.p_loss_after_recovery(t, p, 12.2 + rec + 1.0, 176.33)
+    assert t_loss == pytest.approx(15.0, abs=0.002)
+
+
+def test_no_p_loss_when_power_stays():
+    t, p = p_trace(None)
+    assert fc.p_loss_after_recovery(t, p, 13.2, 176.33) is None
+
+
+def test_step_loss_is_not_an_oscillation():
+    t, p = p_trace(15.0)
+    assert fc.damping_increase(t, p, 12.2)               # the step alone fools the window check
+    assert not fc.damping_increase(t, p, 12.2, t_end=15.0)
