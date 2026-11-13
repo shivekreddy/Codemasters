@@ -113,15 +113,6 @@ CONFIG: dict = {
     "insensitivity_limit_mHz": 10.0,
     "insens_no_resp_frac": 0.10,     # "no response": |dP| < 10 % of the droop value
     "insens_present_frac": 0.50,     # "present": >= 50 % of the droop value, right sign
-    # PPC settings: project specific, set them by hand for each project.
-    # Not read from the model or the manifest. None = not configured: the
-    # value is reported as such and that limit is not checked.
-    # Example (NNWZ PPC): P_mode 2, relative_FSM 2, FSM limit 0.08 Pn,
-    # LFSM limitF 0.80 Pn.
-    "ppc": {"P_mode": None,                # reported in the output header
-            "relative_FSM": None,          # reported in the output header
-            "fsm_limit_frac_pn": None,     # FSM 'limit' as a fraction of Pn
-            "lfsm_limitF_frac_pn": None},  # LFSM 'limitF' as a fraction of Pn
 }
 
 MODES = {"LFSMO": "LFSM-O", "LFSMU": "LFSM-U", "FSM": "FSM", "FSMINS": "FSM-INS"}
@@ -189,26 +180,6 @@ def p_expected(f: float, mode: str, P0: float, cfg: dict = CONFIG) -> tuple[floa
     lo, hi = cfg["P_min_reg_MW"], cfg["P_avail_MW"]
     clipped = p < lo or p > hi
     return min(max(p, lo), hi), clipped
-
-
-def ppc_limit_flags(f: float, mode: str, P0: float, ppc: dict,
-                    cfg: dict = CONFIG) -> list[str]:
-    """
-    Flags when the PPC limits would clip the expected change: FSM 'limit'
-    (fsm_limit_frac_pn x Pn) on the FSM part, LFSM 'limitF' on the LFSM part.
-    """
-    fo, fu = cfg["lfsm_o_threshold_Hz"], cfg["lfsm_u_threshold_Hz"]
-    p_tot, _ = p_expected(f, mode, P0, cfg)
-    p_band, _ = p_expected(min(max(f, fu), fo), mode, P0, cfg)
-    out, pn = [], cfg["Pmax_MW"]
-    fl, ll = ppc.get("fsm_limit_frac_pn"), ppc.get("lfsm_limitF_frac_pn")
-    if fl is not None and abs(p_band - P0) > fl * pn + 1e-9:
-        out.append(f"PPC FSM limit ({fl:g} Pn = {fl * pn:.2f} MW) clips the "
-                   f"expected FSM change at {f:g} Hz ({p_band - P0:+.2f} MW)")
-    if ll is not None and abs(p_tot - p_band) > ll * pn + 1e-9:
-        out.append(f"PPC LFSM limitF ({ll:g} Pn = {ll * pn:.2f} MW) clips the "
-                   f"expected LFSM change at {f:g} Hz ({p_tot - p_band:+.2f} MW)")
-    return out
 
 
 def step_pref(f_from: float, f_to: float, mode: str, P0: float,
@@ -467,7 +438,7 @@ def frequency_checks(cd: CaseData, t_ev: float, t_next: float, i_e: int,
 
 
 def evaluate_step(cd: CaseData, k: int, t_ev: float, t_next: float | None,
-                  f_from: float, f_to: float, P0: float, ppc: dict,
+                  f_from: float, f_to: float, P0: float,
                   psetp: float | None, cfg: dict = CONFIG) -> dict:
     """
     One frequency step (NBNL 4.2.1-4.2.3; DNV 25-1670 Rev. 2 Tables 4-3, 4-6,
@@ -484,7 +455,6 @@ def evaluate_step(cd: CaseData, k: int, t_ev: float, t_next: float | None,
     pc_to, c2 = p_expected(f_to, mode, P0, cfg)
     if c1 or c2:
         flags.append("P-calculated clipped to [P_min_reg, P_avail]")
-    flags += ppc_limit_flags(f_to, mode, P0, ppc, cfg)
     pb, ps = float(p[i_e]), float(p[i_n])
     dpe, dps = pc_to - pc_from, ps - pb
     err = (ps - pc_to) / pc_to * 100.0 if pc_to else None
@@ -588,7 +558,6 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
     if entry.get("complete") is False:
         flags.append(f"run incomplete: ends at {entry.get('t_end_s')} s, "
                      f"t_stop {entry.get('t_stop')} s")
-    ppc = dict(cfg["ppc"])
 
     ev = manifest_events(entry)
     f_level, events = ev[0][1], []
@@ -612,9 +581,9 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
     for k, (t_ev, f_from, f_to) in enumerate(events):
         t_next = events[k + 1][0] if k + 1 < len(events) else None
         steps.append(evaluate_step(cd, k + 1, t_ev, t_next, f_from, f_to,
-                                   P0, ppc, psetp, cfg))
+                                   P0, psetp, cfg))
     res = {"name": name, "mode": mode, "csv": os.path.basename(path), "P0": P0,
-           "pre": pre, "steps": steps, "flags": flags, "ppc": ppc}
+           "pre": pre, "steps": steps, "flags": flags}
     if mode == "FSM-INS":
         res["insens"] = evaluate_insensitivity(steps, P0, cfg)
     return res
@@ -726,7 +695,7 @@ def criteria_sheet(results: list[dict], cfg: dict = CONFIG) -> pd.DataFrame:
     vt = verdict(oks)
     row(4, "Initial delay", f"as short as possible; > {cfg['ti_justify_s']:g} s needs justification",
         v, "justification needed" if vt == "FAIL" else vt,
-        "Ti measured from the POC frequency (no PPC-measured frequency exported)")
+        "Ti measured from the POC frequency")
     # 5 Ts
     v, oks = {}, []
     for m in MODE_ORDER:
@@ -790,15 +759,6 @@ def info_sheet(results: list[dict], manifest: dict, skipped: list[str],
     rows = [("Tool", "freq_check.py"), ("Basis", SOURCE),
             ("Run", manifest.get("run_tag")), ("Exported", manifest.get("exported"))]
     if results:
-        ppc = results[0]["ppc"]
-        nc = "not configured (set CONFIG['ppc'])"
-        txt = lambda k, unit="": nc if ppc.get(k) is None else f"{ppc[k]}{unit}"
-        rows += [("PPC P_mode", txt("P_mode")),
-                 ("PPC relative_FSM", txt("relative_FSM")),
-                 ("PPC FSM limit", txt("fsm_limit_frac_pn", " x Pn")
-                  + ("" if ppc.get("fsm_limit_frac_pn") is None else "; clipping flagged")),
-                 ("PPC LFSM limitF", txt("lfsm_limitF_frac_pn", " x Pn")
-                  + ("" if ppc.get("lfsm_limitF_frac_pn") is None else "; clipping flagged"))]
     for r in results:
         pre = r["pre"]
         rows.append((f"P0 {r['name']}", f"{r['P0']:.3f} MW measured "

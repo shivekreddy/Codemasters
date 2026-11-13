@@ -5,7 +5,7 @@ Synthetic tests (always run): p_expected against the full park and HVC
 tables (Freq_Calcs_clean.xlsx / DNV 25-1670 Rev. 2), step response with a
 known pure delay and first-order lag on a non-uniform time base with
 duplicate timestamps, threshold steps, FSM insensitivity, manifest handling
-(missing columns, ramp cases skipped), bus1-only sign flip, PPC limit flag.
+(missing columns, ramp cases skipped), bus1-only sign flip.
 
 Acceptance test (sample "LFSMO_Step.csv"): runs when the file is in
 tests/data/ or FREQ_SAMPLE_CSV points at it; otherwise skipped. The CSV is
@@ -80,13 +80,6 @@ def test_clipping_flagged():
 def test_insensitivity_full_droop_values():
     assert pe(50.012, "FSM-INS") == 132.08
     assert pe(49.988, "FSM-INS") == 133.36
-
-
-def test_ppc_limit_flag():
-    ppc = {"fsm_limit_frac_pn": 0.05, "lfsm_limitF_frac_pn": 0.80}  # 9.48 MW
-    assert fq.ppc_limit_flags(49.8, "FSM", P0, ppc)                 # 10.62 MW change
-    ppc["fsm_limit_frac_pn"] = 0.08                                 # 15.17 MW
-    assert fq.ppc_limit_flags(49.7, "FSM", P0, ppc) == []
 
 
 # ==============================================================================

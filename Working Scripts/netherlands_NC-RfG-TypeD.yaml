@@ -277,9 +277,9 @@ requirements_type_2:
         plot_zoom_ref_s: 242.0
 
     # FSM insensitivity (NBNL 4.2.3: insensitivity <= 10 mHz, FSM deadband
-    # 0 mHz). The PPC has a 10 mHz discontinuous band, so a +/-10 mHz step
-    # alone proves nothing (it sits exactly on the band edge). Sequence:
-    # +/-10 mHz must give NO response, +/-12 mHz the full droop response.
+    # 0 mHz). A +/-10 mHz step alone sits exactly on the limit, so the
+    # sequence also steps to +/-12 mHz: +/-10 mHz no response, +/-12 mHz a
+    # response in the right direction.
     # NBNL prescribes no test sequence; this one is the project's proposal.
     # Step case only (FSMINS Step). FSM must be active in the base case.
     fsm_insensitivity:
