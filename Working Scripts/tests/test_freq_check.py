@@ -151,10 +151,7 @@ def write_case(folder, name, ctype, events, t, f, p, bus1_only=False, extra=None
 
 
 def manifest(folder, entries):
-    m = {"run_tag": "FREQ_synthetic",
-         "ppc": {"P_mode": 2, "relative_FSM": 2,
-                 "fsm_limit_frac_pn": 0.08, "lfsm_limitF_frac_pn": 0.80},
-         "cases": entries}
+    m = {"run_tag": "FREQ_synthetic", "cases": entries}
     with open(os.path.join(folder, "export_manifest.json"), "w") as fh:
         json.dump(m, fh)
     return m
@@ -321,9 +318,7 @@ def test_sample_lfsmo_step():
     entry = {"name": "LFSMO Step", "type": "LFSMO", "variant": "Step",
              "step_events": LFSMO_FULL, "psetp": P0, "missing_columns": [],
              "export_status": "ok", "complete": True}
-    res = fq.evaluate_case(SAMPLE, entry, {"ppc": {"P_mode": 2, "relative_FSM": 2,
-                                                   "fsm_limit_frac_pn": 0.08,
-                                                   "lfsm_limitF_frac_pn": 0.80}})
+    res = fq.evaluate_case(SAMPLE, entry, {})
     assert round(res["P0"], 2) == 132.72
     tab = fq.steps_sheet(res)
     assert list(tab["P-Calculated [MW]"]) == [132.72, 116.79, 90.25, 63.71,

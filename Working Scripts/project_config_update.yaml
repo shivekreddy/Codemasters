@@ -105,20 +105,6 @@ plot_labels:
 
 # ==============================================================================
 #  <<<  USER INPUT REQUIRED  >>>
-#  SECTION 4c: PPC FREQUENCY SETTINGS (as set in the model; not read from it)
-#  Written to the frequency run manifest. freq_check.py reports them in its
-#  output header and flags steps that these limits would clip.
-# ==============================================================================
-
-ppc:
-  P_mode:            2      # PPC active power mode (2 assumed by the expected values)
-  relative_FSM:      2      # FSM droop relative to the actual power (Pref = P0)
-  fsm_limit_frac_pn: 0.08   # FSM 'limit': max FSM change = 8 % of Pn (15.17 MW at 189.6 MW)
-  lfsm_limitF_frac_pn: 0.80 # LFSM 'limitF': max LFSM change = 80 % of Pn
-  fsm_insensitivity_hz: 0.01  # PPC discontinuous band 'db' (FSM deadband itself 0 mHz)
-
-# ==============================================================================
-#  <<<  USER INPUT REQUIRED  >>>
 #  SECTION 5 — RESULTS OUTPUT
 #  Folder where CSV results are saved after simulations run.
 # ==============================================================================

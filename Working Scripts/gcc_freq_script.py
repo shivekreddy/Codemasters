@@ -47,8 +47,6 @@
 #     +/-10 and +/-12 mHz steps, Step case only. Per type, 'variants'
 #     selects which study cases are created (default Ramp and Step).
 #   * Step event names keep 3 decimals for steps finer than 0.1 Hz.
-#   * The project config 'ppc' section (PPC mode settings and limits) is
-#     written to the run manifest for the evaluation tool (freq_check.py).
 #
 # CHANGELOG v2.1 -> v3.0
 # ----------------------
@@ -942,10 +940,6 @@ def _run(app):
             "run_sim_only":   run_sim_only,
             "script_version": "3.1",
             "p_factor":       p_factor,
-            # PPC settings and limits declared in the project config (not
-            # read from the model): the evaluation tool reports them and
-            # flags steps the PPC limits would clip.
-            "ppc":            cfg.get("ppc"),
             "simulation_timing": {
                 "t_start_s":       t_start_s,
                 "t_stop_s":        t_stop_s,

@@ -9,7 +9,7 @@ report 25-1670 Rev. 2, Tables 4-2 to 4-11 (accepted by TenneT).
 
 Input: the flat "Freq Raw Data" folder written by gcc_export_freq.py:
     LFSMO_Step.csv, LFSMU_Step.csv, FSM_Step.csv, FSMINS_Step.csv, ...
-    export_manifest.json   (event times, psetp, missing_columns, PPC settings)
+    export_manifest.json   (event times, psetp, missing_columns)
 Step event times come from the manifest; they are not detected in the data.
 Ramp cases are not evaluated yet (skipped with a message).
 
@@ -113,9 +113,15 @@ CONFIG: dict = {
     "insensitivity_limit_mHz": 10.0,
     "insens_no_resp_frac": 0.10,     # "no response": |dP| < 10 % of the droop value
     "insens_present_frac": 0.50,     # "present": >= 50 % of the droop value, right sign
-    # PPC settings; overridden by the manifest 'ppc' block when present
-    "ppc": {"P_mode": None, "relative_FSM": None,
-            "fsm_limit_frac_pn": 0.08, "lfsm_limitF_frac_pn": 0.80},
+    # PPC settings: project specific, set them by hand for each project.
+    # Not read from the model or the manifest. None = not configured: the
+    # value is reported as such and that limit is not checked.
+    # Example (NNWZ PPC): P_mode 2, relative_FSM 2, FSM limit 0.08 Pn,
+    # LFSM limitF 0.80 Pn.
+    "ppc": {"P_mode": None,                # reported in the output header
+            "relative_FSM": None,          # reported in the output header
+            "fsm_limit_frac_pn": None,     # FSM 'limit' as a fraction of Pn
+            "lfsm_limitF_frac_pn": None},  # LFSM 'limitF' as a fraction of Pn
 }
 
 MODES = {"LFSMO": "LFSM-O", "LFSMU": "LFSM-U", "FSM": "FSM", "FSMINS": "FSM-INS"}
@@ -582,12 +588,7 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
     if entry.get("complete") is False:
         flags.append(f"run incomplete: ends at {entry.get('t_end_s')} s, "
                      f"t_stop {entry.get('t_stop')} s")
-    ppc, ppc_src = dict(cfg["ppc"]), "config"
-    if manifest.get("ppc"):
-        ppc.update(manifest["ppc"])
-        ppc_src = "manifest"
-    else:
-        flags.append("no 'ppc' block in the manifest: PPC settings and limits from CONFIG")
+    ppc = dict(cfg["ppc"])
 
     ev = manifest_events(entry)
     f_level, events = ev[0][1], []
@@ -613,7 +614,7 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
         steps.append(evaluate_step(cd, k + 1, t_ev, t_next, f_from, f_to,
                                    P0, ppc, psetp, cfg))
     res = {"name": name, "mode": mode, "csv": os.path.basename(path), "P0": P0,
-           "pre": pre, "steps": steps, "flags": flags, "ppc": ppc, "ppc_source": ppc_src}
+           "pre": pre, "steps": steps, "flags": flags, "ppc": ppc}
     if mode == "FSM-INS":
         res["insens"] = evaluate_insensitivity(steps, P0, cfg)
     return res
@@ -760,8 +761,7 @@ def criteria_sheet(results: list[dict], cfg: dict = CONFIG) -> pd.DataFrame:
                      "Requirement": f"<= {cfg['insensitivity_limit_mHz']:g} mHz, FSM deadband 0 mHz",
                      "LFSM-O": "-", "LFSM-U": "-", "FSM": txt,
                      "Verdict": "pass" if allp else "FAIL",
-                     "Note": "10 mHz is the controller insensitivity (PPC discontinuous band "
-                             "db = 0.01 Hz); FSM deadband 0 mHz. Test sequence is the "
+                     "Note": "10 mHz is the controller insensitivity; FSM deadband 0 mHz. Test sequence is the "
                              "project's proposal (NBNL 4.2.3 sets none)."})
     else:
         rows.append({"No.": 7, "Criterion": "FSM insensitivity",
@@ -790,11 +790,15 @@ def info_sheet(results: list[dict], manifest: dict, skipped: list[str],
     rows = [("Tool", "freq_check.py"), ("Basis", SOURCE),
             ("Run", manifest.get("run_tag")), ("Exported", manifest.get("exported"))]
     if results:
-        ppc, src = results[0]["ppc"], results[0]["ppc_source"]
-        rows += [("P_mode", f"{ppc.get('P_mode')} ({src}; expected values assume 2)"),
-                 ("relative_FSM", f"{ppc.get('relative_FSM')} ({src}; expected values assume 2)"),
-                 ("PPC FSM limit", f"{ppc.get('fsm_limit_frac_pn')} x Pn"),
-                 ("PPC LFSM limitF", f"{ppc.get('lfsm_limitF_frac_pn')} x Pn")]
+        ppc = results[0]["ppc"]
+        nc = "not configured (set CONFIG['ppc'])"
+        txt = lambda k, unit="": nc if ppc.get(k) is None else f"{ppc[k]}{unit}"
+        rows += [("PPC P_mode", txt("P_mode")),
+                 ("PPC relative_FSM", txt("relative_FSM")),
+                 ("PPC FSM limit", txt("fsm_limit_frac_pn", " x Pn")
+                  + ("" if ppc.get("fsm_limit_frac_pn") is None else "; clipping flagged")),
+                 ("PPC LFSM limitF", txt("lfsm_limitF_frac_pn", " x Pn")
+                  + ("" if ppc.get("lfsm_limitF_frac_pn") is None else "; clipping flagged"))]
     for r in results:
         pre = r["pre"]
         rows.append((f"P0 {r['name']}", f"{r['P0']:.3f} MW measured "
