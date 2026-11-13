@@ -908,6 +908,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
         "project":        run_manifest.get("project"),
         "plant":          run_manifest.get("plant"),
         "grid_code_file": run_manifest.get("grid_code_file"),
+        "p_factor":       run_manifest.get("p_factor"),
+        "ppc":            run_manifest.get("ppc"),
+        "simulation_timing": run_manifest.get("simulation_timing"),
         "cases":          entries,
     }
     manifest_path = os.path.join(export_dir, "export_manifest.json")

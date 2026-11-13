@@ -276,6 +276,27 @@ requirements_type_2:
         plot_x_refs_s: [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300]
         plot_zoom_ref_s: 242.0
 
+    # FSM insensitivity (NBNL 4.2.3: insensitivity <= 10 mHz, FSM deadband
+    # 0 mHz). The PPC has a 10 mHz discontinuous band, so a +/-10 mHz step
+    # alone proves nothing (it sits exactly on the band edge). Sequence:
+    # +/-10 mHz must give NO response, +/-12 mHz the full droop response.
+    # NBNL prescribes no test sequence; this one is the project's proposal.
+    # Step case only (FSMINS Step). FSM must be active in the base case.
+    fsm_insensitivity:
+      applicable: true
+      variants: [Step]
+      simulation_setup:
+        step_events:
+          - { time_s:   0, freq_hz: 50.000 }
+          - { time_s:  30, freq_hz: 50.010 }
+          - { time_s:  60, freq_hz: 50.012 }
+          - { time_s:  90, freq_hz: 50.000 }
+          - { time_s: 120, freq_hz: 49.990 }
+          - { time_s: 150, freq_hz: 49.988 }
+          - { time_s: 180, freq_hz: 50.000 }
+        plot_x_refs_s: [0, 30, 60, 90, 120, 150, 180]
+        plot_zoom_ref_s: 62.0
+
     verification: null
 
   # Sustained frequency response duration (NC RfG Art. 15)
