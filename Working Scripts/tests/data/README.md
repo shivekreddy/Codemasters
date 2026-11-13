@@ -8,3 +8,12 @@ Put the acceptance sample case here (not committed: `*.csv` is in .gitignore):
 
 or point the `FRT_SAMPLE_DIR` environment variable at that folder. Without it
 the acceptance tests are skipped; the synthetic tests always run.
+
+## test_freq_check.py
+
+Put the frequency samples here (not committed):
+
+    tests/data/LFSMO_Step.csv
+    tests/data/LFSMU_Step.csv
+
+or point the `FREQ_SAMPLE_DIR` environment variable at their folder.

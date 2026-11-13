@@ -7,8 +7,9 @@ known pure delay and first-order lag on a non-uniform time base with
 duplicate timestamps, threshold steps, FSM insensitivity, manifest handling
 (missing columns, ramp cases skipped), bus1-only sign flip.
 
-Acceptance test (sample "LFSMO_Step.csv"): runs when the file is in
-tests/data/ or FREQ_SAMPLE_CSV points at it; otherwise skipped. The CSV is
+Acceptance tests (samples "LFSMO_Step.csv", "LFSMU_Step.csv"): run when the
+files are in tests/data/ or FREQ_SAMPLE_DIR points at their folder;
+otherwise skipped. The CSV is
 project data and not committed (.gitignore excludes *.csv). The Ti / Ts
 values are PROVISIONAL until confirmed against the PowerFactory cursors.
 
@@ -296,11 +297,13 @@ def test_run_without_manifest(tmp_path):
 
 
 # ==============================================================================
-# Acceptance: sample LFSMO_Step.csv (PROVISIONAL Ti / Ts)
+# Acceptance: samples LFSMO_Step.csv, LFSMU_Step.csv (PROVISIONAL Ti / Ts)
 # ==============================================================================
 
-SAMPLE = os.environ.get("FREQ_SAMPLE_CSV") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data", "LFSMO_Step.csv")
+SAMPLE_DIR = os.environ.get("FREQ_SAMPLE_DIR") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data")
+SAMPLE = os.path.join(SAMPLE_DIR, "LFSMO_Step.csv")
+SAMPLE_U = os.path.join(SAMPLE_DIR, "LFSMU_Step.csv")
 
 LFSMO_FULL = [(0, 50.0), (30, 50.2), (60, 50.5), (90, 51.0), (120, 51.5),
               (150, 51.0), (180, 50.5), (210, 50.2), (240, 50.0)]
@@ -322,5 +325,28 @@ def test_sample_lfsmo_step():
     # PROVISIONAL: confirm against the PowerFactory cursors
     assert list(tab["Ti [s]"]) == ["-", 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, "-"]
     assert list(tab["Ts [s]"]) == ["-", 4.1, 3.6, 3.5, 3.6, 3.6, 3.7, "-"]
+    assert all(s["flags"] == [] for s in res["steps"])
+    assert res["flags"] == []
+
+
+LFSMU_FULL = [(0, 50.0), (30, 49.8), (60, 49.5), (90, 49.8), (120, 50.0)]
+
+
+@pytest.mark.skipif(not os.path.isfile(SAMPLE_U), reason="sample LFSMU_Step.csv not present")
+def test_sample_lfsmu_step():
+    entry = {"name": "LFSMU Step", "type": "LFSMU", "variant": "Step",
+             "step_events": LFSMU_FULL, "psetp": P0, "missing_columns": [],
+             "export_status": "ok", "complete": True}
+    res = fq.evaluate_case(SAMPLE_U, entry, {})
+    assert round(res["P0"], 2) == 132.72
+    tab = fq.steps_sheet(res)
+    assert list(tab["P-Calculated [MW]"]) == [132.72, 148.65, 132.72, 132.72]
+    assert list(tab["P-Simulated [MW]"]) == [132.72, 148.65, 132.72, 132.72]
+    assert all(abs(e) < 0.01 for e in tab["Error [%]"])
+    for s in res["steps"][1:3]:
+        assert s["eff_droop_pct"] == pytest.approx(5.0, abs=0.01)
+    # PROVISIONAL: confirm against the PowerFactory cursors
+    assert list(tab["Ti [s]"]) == ["-", 0.9, 0.4, "-"]
+    assert list(tab["Ts [s]"]) == ["-", 4.1, 3.6, "-"]
     assert all(s["flags"] == [] for s in res["steps"])
     assert res["flags"] == []
