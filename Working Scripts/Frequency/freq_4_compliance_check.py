@@ -7,7 +7,7 @@ Requirements: NBNL PGMCV 2.0 §4.2.1 (LFSM-O), §4.2.2 (LFSM-U), §4.2.3 (FSM);
 Netcode elektriciteit Art. 3.13 sub 4, Art. 3.24 sub 2 and 3. Method as DNV
 report 25-1670 Rev. 2, Tables 4-2 to 4-11 (accepted by TenneT).
 
-Input: one run folder in "Freq Raw Data", written by gcc_export_freq.py:
+Input: one run folder in "Freq Raw Data", written by freq_2_export_raw_data.py:
     LFSMO_Step.csv, LFSMU_Step.csv, FSM_Step.csv, FSMINS_Step.csv, ...
     export_manifest.json   (event times, psetp, missing_columns)
 Step event times come from the manifest; they are not detected in the data.
@@ -21,7 +21,7 @@ Usage, from PowerFactory (ComPython): point a ComPython object at this script
 and execute it.
 
 Usage, command line (also used by the tests):
-    python freq_check.py [<run folder>] [--out freq_results.xlsx] [--plots]
+    python freq_4_compliance_check.py [<run folder>] [--out freq_results.xlsx] [--plots]
     (no folder: the folders from the project config, as in PowerFactory)
 
 Reference samples are taken by index (duplicate timestamps at the events):
@@ -29,7 +29,7 @@ the last sample before an event and the last sample before the next event,
 i.e. the PowerFactory cursor readings. Every assumption that triggers is
 reported as a flag. Nothing is rounded until the table sheets.
 
-Self-contained on purpose: importing frt_check.py from inside PowerFactory
+Self-contained on purpose: importing frt_5_compliance_check.py from inside PowerFactory
 would start the FRT check (it runs itself when PowerFactory is present).
 """
 
@@ -49,7 +49,7 @@ try:
     import openpyxl  # noqa: F401  (needed to write freq_results.xlsx)
 except ImportError as _exc:
     raise ImportError(
-        f"freq_check.py needs pandas, numpy and openpyxl ({_exc}). Install them "
+        f"freq_4_compliance_check.py needs pandas, numpy and openpyxl ({_exc}). Install them "
         f"into the Python that runs this script:\n"
         f'  "{os.path.join(sys.prefix, "python.exe")}" -m pip install pandas '
         f"numpy openpyxl matplotlib\n"
@@ -265,7 +265,7 @@ def index_at_time(t: np.ndarray, t_ref: float) -> int:
     """
     Reference sample for an event at t_ref: the FIRST row at exactly t_ref
     (with duplicate timestamps that is the pre-event state), else the last
-    row before t_ref. Same rule as frt_check.py.
+    row before t_ref. Same rule as frt_5_compliance_check.py.
     """
     exact = np.nonzero(np.abs(t - t_ref) < 1e-9)[0]
     if exact.size:
@@ -764,7 +764,7 @@ def raw_sheet(results: list[dict]) -> pd.DataFrame:
 
 def info_sheet(results: list[dict], manifest: dict, skipped: list[str],
                cfg: dict = CONFIG) -> pd.DataFrame:
-    rows = [("Tool", "freq_check.py"), ("Basis", SOURCE),
+    rows = [("Tool", "freq_4_compliance_check.py"), ("Basis", SOURCE),
             ("Run", manifest.get("run_tag")), ("Exported", manifest.get("exported"))]
     for r in results:
         pre = r["pre"]
@@ -1077,7 +1077,7 @@ def run(folder: str, out: str | None = None, plots: bool = False,
     """Evaluate every Step case in the manifest of `folder`, write `out`. Returns 0 / 1."""
     mpath = os.path.join(folder, "export_manifest.json")
     if not os.path.isfile(mpath):
-        _warn(f"No export_manifest.json in {folder} (run gcc_export_freq.py first).")
+        _warn(f"No export_manifest.json in {folder} (run freq_2_export_raw_data.py first).")
         return 1
     with open(mpath, "r", encoding="utf-8") as f:
         manifest = json.load(f)
@@ -1126,17 +1126,17 @@ def run(folder: str, out: str | None = None, plots: bool = False,
 
 def default_folders(script_file: str | None = None) -> tuple[str, str]:
     """
-    Input run folder and output workbook from the project config next to this
-    script (one source for all folders, see gcc_common.py section 0):
+    Input run folder and output workbook from the project config in Working
+    Scripts (one source for all folders, see gcc_common.py section 0):
         input : <paths.root>\\Freq Raw Data\\<run>
         output: <paths.root>\\Freq Results\\<run>\\freq_results.xlsx
     <run> is paths.freq_run if set, else the latest FREQ_* run folder.
     """
     script_file = script_file or __file__
-    here = os.path.dirname(os.path.abspath(script_file))
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    sys.modules.pop("gcc_common", None)          # always this folder's gcc_common.py
+    common = os.path.dirname(os.path.dirname(os.path.abspath(script_file)))
+    if common not in sys.path:                   # gcc_common.py is in Working Scripts
+        sys.path.insert(0, common)
+    sys.modules.pop("gcc_common", None)          # always that folder's gcc_common.py
     import gcc_common as gcc
     cfg = gcc.load_yaml(gcc.resolve_config_path(script_file))
     raw = gcc.results_dir(cfg, "freq_raw", create=False)
@@ -1145,7 +1145,7 @@ def default_folders(script_file: str | None = None) -> tuple[str, str]:
     if not data or not os.path.isdir(data):
         raise RuntimeError(f"No FREQ raw data found in {raw}"
                            + (f" for paths.freq_run = '{run_name}'" if run_name else "")
-                           + ". Run gcc_export_freq.py first.")
+                           + ". Run freq_2_export_raw_data.py first.")
     out_dir = gcc.results_dir(cfg, "freq_results", os.path.basename(data.rstrip("/\\")))
     return data, os.path.join(out_dir, "freq_results.xlsx")
 

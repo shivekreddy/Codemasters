@@ -43,7 +43,8 @@ import sys
 import yaml
 import powerfactory
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# gcc_common.py and the project config live one folder up (Working Scripts)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.modules.pop("gcc_common", None)      # always load gcc_common.py fresh from this folder
 import gcc_common as gcc                 # noqa: E402
 
@@ -235,7 +236,7 @@ def main():
     else:
         folder = gcc.find_latest_run_folder(app.GetProjectFolder("study"), "FRT")
         if folder is None:
-            raise RuntimeError("No FRT_* run folder in Study Cases. Run gcc_frt_script.py first.")
+            raise RuntimeError("No FRT_* run folder in Study Cases. Run frt_1_create_and_run_cases.py first.")
     out_dir = gcc.results_dir(cfg, "frt_raw", folder.loc_name)
     cases = sorted(folder.GetContents("*.IntCase", 1), key=lambda c: c.loc_name)
 

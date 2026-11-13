@@ -1,5 +1,5 @@
 """
-Tests for freq_check.py
+Tests for freq_4_compliance_check.py
 
 Synthetic tests (always run): p_expected against the full park and HVC
 tables (Freq_Calcs_clean.xlsx / DNV 25-1670 Rev. 2), step response with a
@@ -25,8 +25,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import freq_check as fq                                  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Frequency"))
+import freq_4_compliance_check as fq                                  # noqa: E402
 
 CFG = fq.CONFIG
 P0 = 132.72          # 70 % of 189.6 MW

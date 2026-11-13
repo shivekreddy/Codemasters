@@ -1,4 +1,4 @@
-# Test data for test_frt_check.py
+# Test data for test_frt_5_compliance_check.py
 
 Put the acceptance sample case here (not committed: `*.csv` is in .gitignore):
 
@@ -9,7 +9,7 @@ Put the acceptance sample case here (not committed: `*.csv` is in .gitignore):
 or point the `FRT_SAMPLE_DIR` environment variable at that folder. Without it
 the acceptance tests are skipped; the synthetic tests always run.
 
-## test_freq_check.py
+## test_freq_4_compliance_check.py
 
 Put the frequency samples here (not committed):
 

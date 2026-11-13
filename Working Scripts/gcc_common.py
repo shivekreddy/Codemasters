@@ -1,21 +1,20 @@
 # ==============================================================================
 # GCC Automation Tool — Common Function Library
 # ==============================================================================
-# Shared functions used by gcc_frt_script.py and gcc_freq_script.py.
+# Shared functions used by the scripts in Working Scripts\FRT and \Frequency.
 # All functions that exist in both scripts live here exactly once, so a fix
 # lands in one place and both scripts stay in sync.
 #
 # HOW TO IMPORT FROM A ComPython SCRIPT
 # -------------------------------------
 # PowerFactory's embedded Python does not know where this file lives, so each
-# script must add its own folder to sys.path before importing:
+# script must add this file's folder to sys.path before importing. The
+# scripts sit in Working Scripts\FRT and Working Scripts\Frequency, this file
+# and the project config in Working Scripts:
 #
 #     import sys, os
-#     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+#     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 #     import gcc_common as gcc
-#
-# Keep gcc_common.py in the same folder as the two scripts
-# (e.g. ...\Codemasters\Working Scripts\).
 #
 # CONTENTS
 # --------
@@ -30,6 +29,7 @@
 #   7.  CSV export (FindColumn-based)    export_case_to_csv, export_raw_results
 #   8.  Run manifest                     write_run_manifest
 #   9.  UI safety wrapper                pf_session
+#  10.  Plot page export (ComWr)         export_plots
 #
 # WHAT IS VERBATIM AND WHAT CHANGED
 # ---------------------------------
@@ -58,8 +58,10 @@
 # Author  : GCC Automation Team
 
 import os
+import re
 import csv
 import json
+import fnmatch
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -73,13 +75,13 @@ from contextlib import contextmanager
 #       root: 'C:\...\Results Export'
 #
 # and creates these subfolders itself (missing folders are created):
-#     Run Manifests\                         simulation run manifests
-#     FRT Raw Data\<FRT run>\<case>\*.csv     gcc_export_raw_results.py
-#     Freq Raw Data\<FREQ run>\*.csv          gcc_export_freq.py
-#     PowerFactory Plots\FRT\<FRT run>\...    gcc_export_plots.py
-#     PowerFactory Plots\Frequency\<FREQ run>\...
-#     FRT Results\<FRT run>\frt_results.xlsx  frt_check.py
-#     Freq Results\<FREQ run>\freq_results.xlsx  freq_check.py
+#     Run Manifests\                       frt_1 / freq_1 (create and run cases)
+#     FRT Raw Data\<FRT run>\<case>\*.csv   FRT\frt_3_export_raw_data.py
+#     PowerFactory Plots\FRT\<FRT run>\     FRT\frt_4_export_plots.py
+#     FRT Results\<FRT run>\               FRT\frt_5_compliance_check.py
+#     Freq Raw Data\<FREQ run>\*.csv        Frequency\freq_2_export_raw_data.py
+#     PowerFactory Plots\Frequency\<run>\  Frequency\freq_3_export_plots.py
+#     Freq Results\<FREQ run>\             Frequency\freq_4_compliance_check.py
 # <run> is the PowerFactory run folder name (FRT_<date>_<time>, may be
 # renamed with text after it, e.g. "... (PPC Enabled)"). By default every
 # script uses the LATEST run; paths.frt_run / paths.freq_run pick another.
@@ -833,22 +835,35 @@ def export_case_to_csv(app, study_case, elm_objects, record_vars, csv_path):
 _EXPORT_DTGRD_MAX_S = {"FREQ": 0.1}
 
 
+CONFIG_NAMES = ("project_config.yaml", "project_config_update.yaml")
+
+
 def resolve_config_path(script_file, config_file=None):
-    """config_file (file OR folder), else the config next to script_file."""
-    path = config_file or os.path.dirname(os.path.abspath(script_file))
-    if os.path.isdir(path):
-        for name in ("project_config.yaml", "project_config_update.yaml"):
-            candidate = os.path.join(path, name)
+    """
+    config_file (file OR folder), else the project config next to
+    script_file or one folder up (scripts in Working Scripts\\FRT and
+    \\Frequency share the config in Working Scripts).
+    """
+    if config_file:
+        folders = [config_file] if os.path.isdir(config_file) else []
+        if not folders:
+            return config_file
+    else:
+        here = os.path.dirname(os.path.abspath(script_file))
+        folders = [here, os.path.dirname(here)]
+    for folder in folders:
+        for name in CONFIG_NAMES:
+            candidate = os.path.join(folder, name)
             if os.path.isfile(candidate):
                 return candidate
-    return path
+    return os.path.join(folders[0], CONFIG_NAMES[-1])
 
 
 def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
     """
     Export one frequency run to <paths.root>\\Freq Raw Data\\<run folder>\\:
     one CSV per study case (named after the case) + export_manifest.json.
-    (FRT raw data: gcc_export_raw_results.py, one folder per case.)
+    (FRT raw data: frt_3_export_raw_data.py, one folder per case.)
 
     run_tag None -> paths.freq_run from the project config, else the latest
     FREQ_* run folder in Study Cases. Works without results: cases without
@@ -857,7 +872,7 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
     """
     if study != "FREQ":
         raise ValueError("export_raw_results exports frequency runs only; "
-                         "use gcc_export_raw_results.py for FRT.")
+                         "use frt_3_export_raw_data.py for FRT.")
     tolerance   = 2.0 * _EXPORT_DTGRD_MAX_S[study]
 
     app.PrintPlain("=" * 68)
@@ -1076,3 +1091,185 @@ def pf_session(app, clear_output=True, maximize_output=True):
             app.Rebuild(2)
         except Exception:
             pass
+
+
+# ==============================================================================
+# 10. PLOT PAGE EXPORT (ComWr): frt_4_export_plots.py / freq_3_export_plots.py
+# ==============================================================================
+# Writes the plot pages of one run folder (latest, or paths.frt_run /
+# paths.freq_run) as image files under <paths.root>\PowerFactory Plots\:
+#     FRT\<run>\<study case>\POC.png, GU Terminal 1.png, ...
+#     Frequency\<run>\<study case> - Plot 1 - Main Results.png, ...
+# Folders are created when missing; existing files are overwritten; cases
+# without simulation results are skipped (listed in the summary).
+
+# Per study: run-folder prefix, output folder kind, plot pages to export (as
+# created by the frt_1 / freq_1 scripts; * = wildcard), and whether each study
+# case gets its own folder.
+PLOT_STUDIES = {
+    "FRT": {
+        "prefix": "FRT", "kind": "frt_plots",
+        "pages": ["POC", "GU Terminal*"],
+        "folder_per_case": True,
+    },
+    "Frequency": {
+        "prefix": "FREQ", "kind": "freq_plots",
+        "pages": ["* Plot 1 - *", "* Plot 2 - *", "* Plot 3 - *"],
+        "folder_per_case": False,
+    },
+}
+
+_BAD_CHARS = re.compile(r'[<>:"/\\|?*]')                     # not allowed in Windows names
+
+
+def run_folder_for(app, cfg, prefix):
+    """paths.frt_run / paths.freq_run from the config, else the latest '<prefix>_*' run folder."""
+    study = app.GetProjectFolder("study")
+    if study is None:
+        raise RuntimeError("No Study Cases folder: activate the project first.")
+    name = run_name_setting(cfg, prefix)
+    if name:
+        found = study.GetContents(f"{name}.IntFolder")
+        if not found:
+            raise RuntimeError(f"Run folder '{name}' (paths.{prefix.lower()}_run) not in Study Cases.")
+        return found[0]
+    return find_latest_run_folder(study, prefix)
+
+
+def safe_name(name):
+    """A PowerFactory name as a valid Windows file or folder name."""
+    return _BAD_CHARS.sub("_", name).strip().rstrip(".")
+
+
+def has_results(app):
+    """True if the active case's result file holds simulation data."""
+    inc = app.GetFromStudyCase("ComInc")
+    elmRes = inc.p_resvar if inc is not None else None
+    if elmRes is None:
+        return False
+    elmRes.Load()
+    try:
+        return elmRes.GetNumberOfRows() > 0
+    finally:
+        elmRes.Release()
+
+
+def plot_pages(app, patterns):
+    """The active case's plot pages matching the patterns, in pattern order."""
+    board = app.GetGraphicsBoard()
+    if board is None:
+        return []
+    pages = board.GetContents("*.GrpPage") or []
+    out = []
+    for pat in patterns:
+        out += sorted((p for p in pages if fnmatch.fnmatch(p.loc_name, pat)
+                       and p not in out), key=lambda p: p.loc_name)
+    return out
+
+
+def export_page(app, page, path, fmt="png"):
+    """Show the page and write it to path with ComWr (overwrites). Error or None."""
+    app.GetGraphicsBoard().Show(page)
+    if os.path.isfile(path):
+        os.remove(path)                       # overwrite, and a stale file can't fake success
+    comWr = app.GetFromStudyCase("ComWr")
+    comWr.iopt_rd    = fmt
+    comWr.iopt_savas = 0                      # write to f without a dialog
+    comWr.f          = path
+    if comWr.Execute():
+        return "export command failed"
+    if not os.path.isfile(path):
+        return "no file written (try another FORMAT, e.g. 'pdf' or 'wmf', in the export script)"
+    return None
+
+
+def export_study(app, label, spec, cfg, fmt="png"):
+    """Export every case of the run folder of one study. Returns a summary."""
+    app.PrintPlain(f"\n--- {label} " + "-" * (66 - len(label)))
+    run_folder = run_folder_for(app, cfg, spec["prefix"])
+    if run_folder is None:
+        app.PrintWarn(f"  No {spec['prefix']}_* run folder in Study Cases: nothing exported.")
+        return {"label": label, "files": 0, "out": None, "no_results": [], "failed": []}
+
+    out_dir = results_dir(cfg, spec["kind"], safe_name(run_folder.loc_name))
+    cases = sorted(run_folder.GetContents("*.IntCase"), key=lambda c: c.loc_name)
+    app.PrintPlain(f"  Run folder : {run_folder.loc_name}   ({len(cases)} cases)")
+    app.PrintPlain(f"  Output     : {out_dir}")
+
+    n_files, no_results, failed = 0, [], []
+    for case in cases:
+        name = case.loc_name
+        case.Activate()
+        if not has_results(app):
+            no_results.append(name)
+            continue
+        pages = plot_pages(app, spec["pages"])
+        if not pages:
+            failed.append((name, "no plot pages found ("
+                           + ", ".join(spec["pages"]) + ")"))
+            continue
+
+        written = []
+        for page in pages:
+            if spec["folder_per_case"]:
+                case_dir = os.path.join(out_dir, safe_name(name))
+                os.makedirs(case_dir, exist_ok=True)
+                path = os.path.join(case_dir, f"{safe_name(page.loc_name)}.{fmt}")
+            else:
+                # 'LFSMO Plot 1 - Main Results' -> 'LFSMO Step - Plot 1 - Main Results'
+                short = re.sub(r"^.*?(?=Plot \d)", "", page.loc_name) or page.loc_name
+                path = os.path.join(out_dir, f"{safe_name(name)} - {safe_name(short)}.{fmt}")
+            error = export_page(app, page, path, fmt)
+            if error:
+                failed.append((f"{name} / {page.loc_name}", error))
+            else:
+                written.append(page.loc_name)
+                n_files += 1
+        if written:
+            app.PrintPlain(f"  {name:28s} -> {', '.join(written)}")
+
+    active = app.GetActiveStudyCase()
+    if active is not None:
+        active.Deactivate()
+    return {"label": label, "files": n_files, "out": out_dir,
+            "no_results": no_results, "failed": failed}
+
+
+def export_plots(app, label, script_file, fmt="png"):
+    """
+    Export the plot pages of one study ('FRT' or 'Frequency') for the run
+    chosen by the project config; prints a summary to the output window.
+    """
+    app.ClearOutputWindow()
+    app.PrintPlain("=" * 72)
+    app.PrintPlain(f"  GCC Export Plots ({label})")
+    app.PrintPlain("=" * 72)
+    try:
+        config_file = resolve_config_path(script_file)
+        cfg = load_yaml(config_file)
+        root = results_root(cfg)
+    except Exception as exc:
+        app.PrintError(f"Project config / paths.root: {exc}")
+        return None
+    app.PrintPlain(f"  Config    : {config_file}")
+    app.PrintPlain(f"  Directory : {os.path.join(root, *RESULT_FOLDERS[PLOT_STUDIES[label]['kind']])}")
+    app.PrintPlain(f"  Format    : {fmt}")
+    try:
+        s = export_study(app, label, PLOT_STUDIES[label], cfg, fmt)
+    except Exception as exc:
+        app.PrintError(f"  {label} plot export aborted: {exc}")
+        return None
+    app.PrintPlain("")
+    app.PrintPlain("=" * 72)
+    app.PrintPlain("  SUMMARY")
+    if s["out"] is None:
+        app.PrintPlain("  No run folder found")
+    else:
+        app.PrintPlain(f"  {s['files']} plot(s) -> {s['out']}")
+        if s["no_results"]:
+            app.PrintPlain(f"  Skipped, no simulation results ({len(s['no_results'])}): "
+                           + ", ".join(s["no_results"]))
+        for what, error in s["failed"]:
+            app.PrintWarn(f"  FAILED  {what}: {error}")
+    app.PrintPlain("=" * 72)
+    return s

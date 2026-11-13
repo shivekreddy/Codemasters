@@ -9,7 +9,7 @@ recovery), §4.2.18 (fast fault current injection, FFCI). Method as DNV report
 
 Input: one folder per case, e.g. "FRT 1PH 0.05 Q0/", holding POC.csv,
 "GU Terminal 1.csv" (HVC) and "GU Terminal 2.csv" (Novar), as written by
-gcc_export_raw_results.py: time_s + 10 signals per file.
+frt_3_export_raw_data.py: time_s + 10 signals per file.
 
 Folders: from the project config next to this script (paths.root). Input is
 the latest run in <root>\\FRT Raw Data (or paths.frt_run); the workbook goes
@@ -19,7 +19,7 @@ Usage, from PowerFactory (ComPython): point a ComPython object at this script
 and execute it. Output goes to the PowerFactory output window.
 
 Usage, command line (also used by the tests):
-    python frt_check.py [<folder with case folders>] [--out frt_results.xlsx]
+    python frt_5_compliance_check.py [<folder with case folders>] [--out frt_results.xlsx]
                         [--plots] [--tf 10.0] [--tc 10.25]
     (no folder: the folders from the project config, as in PowerFactory)
 
@@ -45,7 +45,7 @@ try:
     import openpyxl  # noqa: F401  (needed to write results.xlsx)
 except ImportError as _exc:
     raise ImportError(
-        f"frt_check.py needs pandas, numpy and openpyxl ({_exc}). Install them "
+        f"frt_5_compliance_check.py needs pandas, numpy and openpyxl ({_exc}). Install them "
         f"into the Python that runs this script:\n"
         f'  "{os.path.join(sys.prefix, "python.exe")}" -m pip install pandas '
         f"numpy openpyxl matplotlib pyyaml\n"
@@ -136,7 +136,7 @@ CONFIG: dict = {
     "grid_code_yaml": "netherlands_NC-RfG-TypeD.yaml",
 }
 
-# Export layout (gcc_export_raw_results.py): POC.csv plus one GU file per
+# Export layout (frt_3_export_raw_data.py): POC.csv plus one GU file per
 # plant, "GU Terminal.csv" for a one-plant model, "GU Terminal 1.csv" and
 # "GU Terminal 2.csv" for a two-plant model (as set in the project config).
 POC_FILE = "POC.csv"
@@ -825,7 +825,9 @@ def grid_code_duration_warnings(cfg: dict = CONFIG, script_dir: str | None = Non
     if not path:
         return []
     if not os.path.isabs(path):
-        path = os.path.join(script_dir or os.path.dirname(os.path.abspath(__file__)), path)
+        here = script_dir or os.path.dirname(os.path.abspath(__file__))
+        cands = [os.path.join(here, path), os.path.join(os.path.dirname(here), path)]
+        path = next((c for c in cands if os.path.isfile(c)), cands[-1])  # grid code in Working Scripts
     if not os.path.isfile(path):
         return [f"grid code YAML not found for the duration check: {path}"]
     try:
@@ -1303,17 +1305,17 @@ def run(folder: str, out: str, plots: bool = False, tf: float | None = None,
 
 def default_folders(script_file: str | None = None) -> tuple[str, str]:
     """
-    Input run folder and output workbook from the project config next to this
-    script (one source for all folders, see gcc_common.py section 0):
+    Input run folder and output workbook from the project config in Working
+    Scripts (one source for all folders, see gcc_common.py section 0):
         input : <paths.root>\\FRT Raw Data\\<run>
         output: <paths.root>\\FRT Results\\<run>\\frt_results.xlsx
     <run> is paths.frt_run if set, else the latest FRT_* run folder.
     """
     script_file = script_file or __file__
-    here = os.path.dirname(os.path.abspath(script_file))
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    sys.modules.pop("gcc_common", None)          # always this folder's gcc_common.py
+    common = os.path.dirname(os.path.dirname(os.path.abspath(script_file)))
+    if common not in sys.path:                   # gcc_common.py is in Working Scripts
+        sys.path.insert(0, common)
+    sys.modules.pop("gcc_common", None)          # always that folder's gcc_common.py
     import gcc_common as gcc
     cfg = gcc.load_yaml(gcc.resolve_config_path(script_file))
     raw = gcc.results_dir(cfg, "frt_raw", create=False)
@@ -1322,7 +1324,7 @@ def default_folders(script_file: str | None = None) -> tuple[str, str]:
     if not data or not os.path.isdir(data):
         raise RuntimeError(f"No FRT raw data found in {raw}"
                            + (f" for paths.frt_run = '{run_name}'" if run_name else "")
-                           + ". Run gcc_export_raw_results.py first.")
+                           + ". Run frt_3_export_raw_data.py first.")
     out_dir = gcc.results_dir(cfg, "frt_results", os.path.basename(data.rstrip("/\\")))
     return data, os.path.join(out_dir, "frt_results.xlsx")
 

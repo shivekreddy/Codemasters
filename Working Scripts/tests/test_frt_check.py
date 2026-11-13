@@ -1,5 +1,5 @@
 """
-Tests for frt_check.py
+Tests for frt_5_compliance_check.py
 
 Synthetic tests (always run): event detection with duplicate timestamps and a
 non-uniform time step, k-factor, current limit, 2P retained voltage, Ti,90 /
@@ -21,8 +21,8 @@ import sys
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import frt_check as fc                                   # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "FRT"))
+import frt_5_compliance_check as fc                                   # noqa: E402
 
 
 # ==============================================================================

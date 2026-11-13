@@ -77,7 +77,8 @@ import time as clock
 # ------------------------------------------------------------------------------
 # Make gcc_common.py importable (it sits next to this script)
 # ------------------------------------------------------------------------------
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# gcc_common.py and the project config live one folder up (Working Scripts)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # PowerFactory keeps imported modules in memory for the whole session:
 # drop any cached copy so gcc_common.py is always loaded fresh from THIS
 # folder (not an older version, or a copy from another folder).
@@ -90,8 +91,8 @@ import powerfactory
 # ------------------------------------------------------------------------------
 # PATH TO PROJECT CONFIG — same file used by the FRT script.
 #   Set an absolute path (file or folder) here, OR leave as None to use the
-#   project_config.yaml / project_config_update.yaml located in the same
-#   folder as this script.
+#   project_config.yaml / project_config_update.yaml in Working Scripts
+#   (one folder up from this script).
 # ------------------------------------------------------------------------------
 CONFIG_FILE = None
 
@@ -528,14 +529,8 @@ def preflight(app, sim_cfg, elem_cfg, out_dir, run_sim_only):
 # ==============================================================================
 
 def _resolve_config_path():
-    """CONFIG_FILE (file OR folder), else the config next to this script."""
-    path = CONFIG_FILE or os.path.dirname(os.path.abspath(__file__))
-    if os.path.isdir(path):     # folder given -> look for a config inside it
-        for name in ("project_config.yaml", "project_config_update.yaml"):
-            candidate = os.path.join(path, name)
-            if os.path.isfile(candidate):
-                return candidate
-    return path
+    """CONFIG_FILE (file OR folder), else the project config in Working Scripts."""
+    return gcc.resolve_config_path(__file__, CONFIG_FILE)
 
 
 def _run(app):
@@ -901,12 +896,12 @@ def _run(app):
 
     # --------------------------------------------------------------------------
     # 7.10  Results export
-    #        Handled EXCLUSIVELY by gcc_export_freq.py
+    #        Handled EXCLUSIVELY by freq_2_export_raw_data.py
     #        (one CSV per case + export_manifest.json).
     # --------------------------------------------------------------------------
     if not setup_only:
         app.PrintPlain(
-            "\nResults export: run gcc_export_freq.py to "
+            "\nResults export: run freq_2_export_raw_data.py to "
             "write one CSV per case."
         )
 
@@ -974,7 +969,7 @@ def _run(app):
 
     app.PrintPlain(f"\n  Manifest : {manifest_path}")
     if not setup_only:
-        app.PrintPlain("  Export   : run gcc_export_freq.py")
+        app.PrintPlain("  Export   : run freq_2_export_raw_data.py")
     app.PrintPlain("=" * 68)
 
 

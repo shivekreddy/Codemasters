@@ -10,10 +10,12 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+HERE = os.path.dirname(os.path.abspath(__file__))
+for sub in ("..", os.path.join("..", "FRT"), os.path.join("..", "Frequency")):
+    sys.path.insert(0, os.path.join(HERE, sub))
 import gcc_common as gcc                                  # noqa: E402
-import freq_check as fq                                   # noqa: E402
-import frt_check as fc                                    # noqa: E402
+import freq_4_compliance_check as fq                                   # noqa: E402
+import frt_5_compliance_check as fc                                    # noqa: E402
 
 
 def test_results_dir_layout(tmp_path):
@@ -77,5 +79,5 @@ def test_checks_use_configured_run(tmp_path):
 
 def test_checks_without_raw_data_say_so(tmp_path):
     _config(tmp_path)
-    with pytest.raises(RuntimeError, match="gcc_export_raw_results.py"):
+    with pytest.raises(RuntimeError, match="frt_3_export_raw_data.py"):
         fc.default_folders(str(tmp_path / "x.py"))

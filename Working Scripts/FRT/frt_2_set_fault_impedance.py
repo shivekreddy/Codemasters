@@ -4,7 +4,7 @@
 # Overwrites the fault impedance (R_f, X_f) of the fault events in every study
 # case of the latest FRT run folder, using the values in the table below.
 #
-# gcc_frt_script.py pre-fills each case with an ESTIMATED impedance. The
+# frt_1_create_and_run_cases.py pre-fills each case with an ESTIMATED impedance. The
 # retained voltage the plant actually sees is usually different, so tune the
 # values here and re-run this script — no need to rebuild the study cases.
 #
@@ -28,7 +28,8 @@
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# gcc_common.py and the project config live one folder up (Working Scripts)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.modules.pop("gcc_common", None)      # always load gcc_common fresh
 import gcc_common as gcc
 
@@ -72,7 +73,7 @@ def find_run_folder(app):
     folder = gcc.find_latest_run_folder(study, "FRT")
     if folder is None:
         raise RuntimeError("No FRT_* run folder found in Study Cases. "
-                           "Run gcc_frt_script.py first.")
+                           "Run frt_1_create_and_run_cases.py first.")
     return folder
 
 
