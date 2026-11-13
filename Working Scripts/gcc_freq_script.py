@@ -39,7 +39,16 @@
 #   gcc_common.py  — must sit in the SAME FOLDER as this script
 #
 # Author  : GCC Automation Team
-# Version : 3.0
+# Version : 3.1
+#
+# CHANGELOG v3.0 -> v3.1
+# ----------------------
+#   * New optional type fsm_insensitivity (FSMINS) in the grid code YAML:
+#     +/-10 and +/-12 mHz steps, Step case only. Per type, 'variants'
+#     selects which study cases are created (default Ramp and Step).
+#   * Step event names keep 3 decimals for steps finer than 0.1 Hz.
+#   * The project config 'ppc' section (PPC mode settings and limits) is
+#     written to the run manifest for the evaluation tool (freq_check.py).
 #
 # CHANGELOG v2.1 -> v3.0
 # ----------------------
@@ -98,6 +107,7 @@ FREQ_Y_RANGE = {
     "LFSMO": (49.5, 52.0),
     "LFSMU": (49.5, 50.5),
     "FSM":   (49.5, 50.5),
+    "FSMINS": (49.98, 50.02),   # FSM insensitivity: +/-10 and +/-12 mHz steps
 }
 
 # Plot 2 puts active power on a second (right) y-axis. PowerFactory
@@ -143,6 +153,7 @@ _TYPE_KEY_MAP = {
     "lfsm_o": "LFSMO",
     "lfsm_u": "LFSMU",
     "fsm":    "FSM",
+    "fsm_insensitivity": "FSMINS",
 }
 
 
@@ -213,7 +224,16 @@ def get_freq_config(gc_cfg):
                 f"({t_stop_s:.0f}s). Increase simulation_timing.t_stop_s."
             )
 
+        # Optional per type: which study cases to create (default both).
+        # The insensitivity check is a Step case only.
+        variants = [str(v) for v in block.get("variants", ["Ramp", "Step"])]
+        bad = [v for v in variants if v not in ("Ramp", "Step")]
+        if bad or not variants:
+            raise RuntimeError(f"'{yaml_key}.variants' must list Ramp and/or "
+                               f"Step, got {block.get('variants')}.")
+
         type_configs[type_str] = {
+            "variants":        variants,
             "step_events":     step_events,
             "plot_x_refs_s":   plot_x_refs,
             "plot_zoom_ref_s": plot_zoom,
@@ -267,7 +287,11 @@ def create_step_events(app, sim_type, freq_voltage_source, step_events):
     app.PrintPlain(f"    Creating {len(step_events)} step event(s) for {sim_type}...")
 
     for time_s, freq_hz in step_events:
-        evt_name     = f"{sim_type}_Step_{freq_hz:.1f}Hz_t{int(time_s)}s"
+        # 0.1 Hz steps keep their short names (50.2Hz); finer steps (the
+        # insensitivity case, 50.012 Hz) get 3 decimals.
+        f_txt        = (f"{freq_hz:.1f}" if abs(freq_hz - round(freq_hz, 1)) < 1e-9
+                        else f"{freq_hz:.3f}")
+        evt_name     = f"{sim_type}_Step_{f_txt}Hz_t{int(time_s)}s"
         evt          = evt_folder.CreateObject("EvtParam", evt_name)
         evt.p_target = freq_voltage_source   # target element: ElmVac
         evt.time     = float(time_s)         # event time [s]
@@ -527,7 +551,7 @@ def _resolve_config_path():
 def _run(app):
 
     app.PrintPlain("=" * 68)
-    app.PrintPlain("  GCC Frequency Simulation Script v3.0 — starting")
+    app.PrintPlain("  GCC Frequency Simulation Script v3.1 — starting")
     app.PrintPlain("=" * 68)
     t0 = clock.perf_counter()
 
@@ -603,7 +627,7 @@ def _run(app):
     study_cases = []
     for sim_type in applicable:
         tc = type_configs[sim_type]
-        for variant in ("Ramp", "Step"):
+        for variant in tc["variants"]:
             study_cases.append({
                 "name":        f"{sim_type} {variant}",
                 "type":        sim_type,
@@ -916,8 +940,12 @@ def _run(app):
         extra       = {
             "setup_only":     setup_only,
             "run_sim_only":   run_sim_only,
-            "script_version": "3.0",
+            "script_version": "3.1",
             "p_factor":       p_factor,
+            # PPC settings and limits declared in the project config (not
+            # read from the model): the evaluation tool reports them and
+            # flags steps the PPC limits would clip.
+            "ppc":            cfg.get("ppc"),
             "simulation_timing": {
                 "t_start_s":       t_start_s,
                 "t_stop_s":        t_stop_s,
