@@ -556,8 +556,18 @@ def set_yrange(plot, y_min, y_max, app, axis_name="y-Axis"):
             app.PrintWarn(f"    y-Axis PltAxis not found on '{plot.loc_name}'")
             return
         ax = axes[0]
-        ax.rangeMax = float(y_max)
-        ax.rangeMin = float(y_min)
+        # PowerFactory rejects min >= max at every step: if the new range
+        # lies below the current one, set the minimum first
+        try:
+            cur_min = float(ax.rangeMin)
+        except Exception:
+            cur_min = None
+        if cur_min is not None and float(y_max) <= cur_min:
+            ax.rangeMin = float(y_min)
+            ax.rangeMax = float(y_max)
+        else:
+            ax.rangeMax = float(y_max)
+            ax.rangeMin = float(y_min)
         try:
             ax.iAutoScale = 0
         except Exception:

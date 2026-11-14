@@ -106,3 +106,45 @@ def test_select_cases_by_name_report_name_and_wildcard():
     assert miss == ["FRT 9PH 1 Q0"]
     sel, _ = gcc.select_cases(cases, ["FRT 1PH 0.6 Qmax", "1P-60U-Qmax"])
     assert len(sel) == 1                                 # no duplicates
+
+
+# ==============================================================================
+# set_yrange: order of min / max (PowerFactory rejects min >= max at each step)
+# ==============================================================================
+
+class _Axis:
+    loc_name = "y-Axis"
+
+    def __init__(self, lo, hi):
+        object.__setattr__(self, "_v", {"rangeMin": lo, "rangeMax": hi})
+
+    def __getattr__(self, k):
+        return self._v[k]
+
+    def __setattr__(self, k, v):
+        new = dict(self._v, **{k: v})
+        if k in ("rangeMin", "rangeMax") and new["rangeMin"] >= new["rangeMax"]:
+            raise ValueError("min must be smaller than max")
+        self._v[k] = v
+
+
+class _Plot:
+    loc_name = "Curve plot"
+
+    def __init__(self, axis):
+        self.axis = axis
+
+    def GetContents(self, pat):
+        return [self.axis]
+
+
+class _App:
+    def PrintWarn(self, msg):
+        raise AssertionError(msg)
+
+
+@pytest.mark.parametrize("start", [(50.0, 70.0), (-80.0, -60.0), (0.9, 1.1)])
+def test_set_yrange_from_any_zoom(start):
+    ax = _Axis(*start)
+    gcc.set_yrange(_Plot(ax), -1.0, 1.4, _App())
+    assert (ax.rangeMin, ax.rangeMax) == (-1.0, 1.4)

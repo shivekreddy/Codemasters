@@ -37,7 +37,7 @@
 # CHANGELOG v5.5 -> v5.6
 # ----------------------
 #   * Fixed y-axis ranges on the plot pages (time axis unchanged):
-#       voltages 0 to 1.4 pu, currents -1 to 1.2 pu (POC and GU pages);
+#       voltages 0 to 1.4 pu, currents -1 to 1.4 pu (POC and GU pages);
 #       POC power per case: bottom = next multiple of 5 below
 #       min(Q setpoint, 0), top = largest of P and |Q| setpoint + 10,
 #       rounded up to a multiple of 5. GU power stays on auto scale.
@@ -165,7 +165,7 @@ QSETP_SIGN = +1
 # Plot y-axis ranges (the time axis is set per case from the fault times)
 # ------------------------------------------------------------------------------
 Y_RANGE_VOLTAGE = (0.0, 1.4)    # phase and sequence voltages [pu]
-Y_RANGE_CURRENT = (-1.0, 1.2)   # active / reactive currents [pu]
+Y_RANGE_CURRENT = (-1.0, 1.4)   # active / reactive currents [pu]
 PQ_MARGIN_MW    = 10.0          # POC power: top = largest setpoint + margin
 PQ_STEP_MW      = 5.0           # POC power: axis limits on multiples of this
 

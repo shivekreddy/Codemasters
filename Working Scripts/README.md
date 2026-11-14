@@ -26,6 +26,7 @@ Working Scripts\
         frt_3b_export_selected_cases.py    export only a few cases, into a folder you choose
         frt_4_export_plots.py              export the PowerFactory plot pages as PNG
         frt_5_compliance_check.py          evaluate compliance, write the Excel workbook
+        frt_6_reset_plot_scaling.py        put the plot y-axes back to their fixed ranges
     Frequency\
         freq_1_create_and_run_cases.py     create the frequency study cases, optionally run them
         freq_2_export_raw_data.py          export the results to CSV
@@ -128,6 +129,7 @@ Every export and check uses the **latest** run by that timestamp unless
 | 3 | `frt_3_export_raw_data.py` | One folder per case, one CSV per plot page (`POC.csv`, `GU Terminal.csv` or `GU Terminal 1.csv` + `GU Terminal 2.csv`), plus `export_manifest.json`. | none |
 | 3b | `frt_3b_export_selected_cases.py` | Optional. Same export as step 3 (identical files), but only for the cases in `CASES` (PowerFactory or report names, wildcards allowed, e.g. `"1P-60U-Qmax"`, `"FRT 2PH * Qmax"`) and into `OUTPUT_DIR` (default `<root>\FRT Selected Cases`). Exporting again into the same folder adds or replaces cases. Check them with `frt_5_compliance_check.py <folder>\<run folder>` from the command line. | `CASES`, `OUTPUT_DIR`, `RUN_FOLDER` |
 | 4 | `frt_4_export_plots.py` | PNG of every plot page, one folder per case. | `FORMAT` |
+| 6 | `frt_6_reset_plot_scaling.py` | Utility, any time. Resets the y-axes on the POC and GU Terminal pages of every case (or `CASES`) of the latest run: voltages 0 to 1.4 pu, currents -1 to 1.4 pu. The P / Q graph and the time axis are not touched. Use it after rescaling graphs by hand, before `frt_4_export_plots.py`. | `Y_RANGE_VOLTAGE`, `Y_RANGE_CURRENT`, `CASES`, `RUN_FOLDER` |
 | 5 | `frt_5_compliance_check.py` | Evaluates every case and writes `frt_results.xlsx`. | `PF_PLOTS`, `PF_TF` / `PF_TC` (event time overrides) |
 
 **FRT workbook (`frt_results.xlsx`):**
