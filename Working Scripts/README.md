@@ -23,6 +23,7 @@ Working Scripts\
         frt_1_create_and_run_cases.py      create the FRT study cases, optionally run them
         frt_2_set_fault_impedance.py       tune the fault impedances (retained voltages)
         frt_3_export_raw_data.py           export the results to CSV
+        frt_3b_export_selected_cases.py    export only a few cases, into a folder you choose
         frt_4_export_plots.py              export the PowerFactory plot pages as PNG
         frt_5_compliance_check.py          evaluate compliance, write the Excel workbook
     Frequency\
@@ -102,6 +103,7 @@ Everything is written under `root` (folders are created when missing):
 <root>\
     Run Manifests\<run>_manifest.json                    frt_1 / freq_1
     FRT Raw Data\<FRT run>\<case>\POC.csv, GU Terminal*.csv  + export_manifest.json   frt_3
+    FRT Selected Cases\<FRT run>\<case>\...   (default of frt_3b; any folder set in the script)
     PowerFactory Plots\FRT\<FRT run>\<case>\POC.png, ...  frt_4
     FRT Results\<FRT run>\frt_results.xlsx (+ plots\)      frt_5
     Freq Raw Data\<FREQ run>\LFSMO_Step.csv, ...  + export_manifest.json            freq_2
@@ -124,6 +126,7 @@ Every export and check uses the **latest** run by that timestamp unless
 | 1 | `frt_1_create_and_run_cases.py` | Builds every FRT case from the grid code (fault types x retained voltages x Q0/Qmax/Qmin) in a new `FRT_<timestamp>` folder: copies the base case, adds fault and clearance events, recorded variables, plot pages (POC and one GU page per plant, fixed y-axis ranges), P and Q setpoints, stop time. Runs them if `setup_only: false`. Writes the run manifest. | `QSETP_SIGN`, y-axis ranges (`Y_RANGE_*`, `PQ_*`) |
 | 2 | `frt_2_set_fault_impedance.py` | Optional. Writes R_f / X_f per retained voltage into the fault events of the latest run, so the retained voltage at the POC hits its target. Then rerun with `run_sim_only: true`. | `FAULT_IMPEDANCE` table, `DRY_RUN`, `RUN_TAG` |
 | 3 | `frt_3_export_raw_data.py` | One folder per case, one CSV per plot page (`POC.csv`, `GU Terminal.csv` or `GU Terminal 1.csv` + `GU Terminal 2.csv`), plus `export_manifest.json`. | none |
+| 3b | `frt_3b_export_selected_cases.py` | Optional. Same export as step 3 (identical files), but only for the cases in `CASES` (PowerFactory or report names, wildcards allowed, e.g. `"1P-60U-Qmax"`, `"FRT 2PH * Qmax"`) and into `OUTPUT_DIR` (default `<root>\FRT Selected Cases`). Exporting again into the same folder adds or replaces cases. Check them with `frt_5_compliance_check.py <folder>\<run folder>` from the command line. | `CASES`, `OUTPUT_DIR`, `RUN_FOLDER` |
 | 4 | `frt_4_export_plots.py` | PNG of every plot page, one folder per case. | `FORMAT` |
 | 5 | `frt_5_compliance_check.py` | Evaluates every case and writes `frt_results.xlsx`. | `PF_PLOTS`, `PF_TF` / `PF_TC` (event time overrides) |
 
@@ -241,7 +244,9 @@ and run from the command line.
 
 **Where the logic lives (for the core migration):**
 - Manifest writing: `gcc_common.write_run_manifest`, the export manifests in
-  `gcc_common.export_raw_results` (frequency) and `frt_3_export_raw_data.py`.
+  `gcc_common.export_raw_results` (frequency) and `gcc_common.export_frt_raw`
+  (FRT, used by `frt_3` and `frt_3b`; the FRT export manifest also has
+  `selected_cases`).
 - Folder resolution: `gcc_common` section 0 (`results_dir`, `run_name_setting`,
   `latest_run_dir`, `find_latest_run_folder`).
 - Recorded variables: `gcc_common.RECORD_VARS_FRT` / `RECORD_VARS_FREQ`.

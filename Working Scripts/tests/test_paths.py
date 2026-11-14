@@ -81,3 +81,28 @@ def test_checks_without_raw_data_say_so(tmp_path):
     _config(tmp_path)
     with pytest.raises(RuntimeError, match="frt_3_export_raw_data.py"):
         fc.default_folders(str(tmp_path / "x.py"))
+
+
+# ==============================================================================
+# Selected-case export (frt_3b): case names and selection
+# ==============================================================================
+
+class _Case:
+    def __init__(self, name):
+        self.loc_name = name
+
+
+def test_frt_report_name():
+    assert gcc.frt_report_name("FRT 1PH 0.6 Qmax") == "1P-60U-Qmax"
+    assert gcc.frt_report_name("FRT 3PH 0.05 Q0") == "3P-5U-Q0"
+    assert gcc.frt_report_name("LFSMO Step") is None
+
+
+def test_select_cases_by_name_report_name_and_wildcard():
+    cases = [_Case(n) for n in ("FRT 1PH 0.6 Qmax", "FRT 2PH 0.85 Qmax",
+                                "FRT 2PH 0.85 Q0", "FRT 3PH 0.05 Qmin")]
+    sel, miss = gcc.select_cases(cases, ["1p-60u-qmax", "FRT 2PH * Qmax", "FRT 9PH 1 Q0"])
+    assert [c.loc_name for c in sel] == ["FRT 1PH 0.6 Qmax", "FRT 2PH 0.85 Qmax"]
+    assert miss == ["FRT 9PH 1 Q0"]
+    sel, _ = gcc.select_cases(cases, ["FRT 1PH 0.6 Qmax", "1P-60U-Qmax"])
+    assert len(sel) == 1                                 # no duplicates
