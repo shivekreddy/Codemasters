@@ -27,7 +27,7 @@ Working Scripts\
         frt_4_export_plots.py              export the PowerFactory plot pages as PNG
         frt_5_compliance_check.py          evaluate compliance, write the Excel workbook
         frt_6_reset_plot_scaling.py        put the plot y-axes back to their fixed ranges
-        frt_7_fix_poc_power_sign.py        older runs only: POC power graph from bus1 to bus2
+        frt_7_fix_poc_power_sign.py        older runs only: flip the sign of the POC power curves
     Frequency\
         freq_1_create_and_run_cases.py     create the frequency study cases, optionally run them
         freq_2_export_raw_data.py          export the results to CSV
