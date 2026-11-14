@@ -27,6 +27,7 @@ Working Scripts\
         frt_4_export_plots.py              export the PowerFactory plot pages as PNG
         frt_5_compliance_check.py          evaluate compliance, write the Excel workbook
         frt_6_reset_plot_scaling.py        put the plot y-axes back to their fixed ranges
+        frt_7_fix_poc_power_sign.py        older runs only: POC power graph from bus1 to bus2
     Frequency\
         freq_1_create_and_run_cases.py     create the frequency study cases, optionally run them
         freq_2_export_raw_data.py          export the results to CSV
@@ -131,6 +132,7 @@ Every export and check uses the **latest** run by that timestamp unless
 | 4 | `frt_4_export_plots.py` | PNG of every plot page, one folder per case. | `FORMAT` |
 | 5 | `frt_5_compliance_check.py` | Evaluates every case and writes `frt_results.xlsx`. | `PF_PLOTS`, `PF_TF` / `PF_TC` (event time overrides) |
 | 6 | `frt_6_reset_plot_scaling.py` | Utility, any time. Resets the y-axes on the POC and GU Terminal pages of every case (or `CASES`) of the latest run: voltages 0 to 1.4 pu, currents -1 to 1.4 pu, and the P / Q graph per page (POC, GU1, GU2 if the config has plant 2) to the min / max you enter (None = unchanged). The time axis is not touched. Use it after rescaling graphs by hand, before `frt_4_export_plots.py`. | `Y_RANGE_VOLTAGE`, `Y_RANGE_CURRENT`, `Y_RANGE_POWER`, `CASES`, `RUN_FOLDER` |
+| 7 | `frt_7_fix_poc_power_sign.py` | Older runs only (made before frt_1 v5.6, POC power plotted on bus1, export negative). Switches the POC page's P / Q graph to bus2 (export positive), keeping colours and labels. Only possible where the results hold bus2: otherwise it adds bus2 to the result object and reports "rerun needed" (rerun with `run_sim_only: true`, then run it again). `DRY_RUN = True` reports only. | `DRY_RUN`, `CASES`, `RUN_FOLDER` |
 
 **FRT workbook (`frt_results.xlsx`):**
 - **Summary** (first tab): one row per case with Result and a verdict per
