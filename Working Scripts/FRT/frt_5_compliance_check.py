@@ -703,6 +703,35 @@ def evaluate_location(loc: Location, case: Case, i_f: int, i_c: int,
     return {**r, "flags": flags}
 
 
+def align_time_bases(locs: dict, files: dict) -> list[str]:
+    """
+    All files of a case must share the POC time base (samples are taken by
+    index). If they only differ in length, with identical times over the
+    common part, every file is cut to the common part and flagged: the files
+    then come from different exports or runs of the case (re-export it).
+    Any other difference is an error.
+    """
+    poc = locs["POC"]
+    n = min(len(loc.t) for loc in locs.values())
+    flags = []
+    for loc in locs.values():
+        if len(loc.t) == len(poc.t) and np.allclose(loc.t, poc.t):
+            continue
+        if n == 0 or not np.allclose(loc.t[:n], poc.t[:n]):
+            raise ValueError(f"{files[loc.key]}: time column differs from POC.csv.")
+    if any(len(loc.t) != n for loc in locs.values()):
+        ends = ", ".join(f"{files[k]} {len(l.t)} rows to {l.t[-1]:.5f} s" for k, l in locs.items())
+        flags.append(f"files differ in length ({ends}): evaluated up to "
+                     f"{poc.t[n - 1]:.5f} s, the common part. The files come from "
+                     f"different exports or runs; re-export the case")
+        for loc in locs.values():
+            if len(loc.t) > n:
+                loc.t = loc.t[:n]
+                loc.exported = {k: v[:n] for k, v in loc.exported.items()}
+                loc.scaled = {k: v[:n] for k, v in loc.scaled.items()}
+    return flags
+
+
 def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
                   tc: float | None = None) -> dict:
     """Evaluate one case folder: events, validity, all locations, verdicts."""
@@ -711,6 +740,7 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
     if "POC" not in files:
         raise FileNotFoundError(f"{folder}: POC.csv missing.")
     locs = {k: load_location(os.path.join(folder, f), k, cfg) for k, f in files.items()}
+    flags += align_time_bases(locs, files)
 
     # --- events (POC phase voltages) ------------------------------------------------
     poc = locs["POC"]
@@ -727,11 +757,6 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
         i_c = detect_clearance(poc.t, phases, i_f, cfg["event_jump_pu"],
                                cfg["clearance_search_delay_s"])
     t_f, t_c = poc.t[i_f], poc.t[i_c]
-
-    # all files share the POC time base; take the same samples by index
-    for loc in locs.values():
-        if len(loc.t) != len(poc.t) or not np.allclose(loc.t, poc.t):
-            raise ValueError(f"{files[loc.key]}: time column differs from POC.csv.")
 
     # --- run validity -------------------------------------------------------------------
     v = {"t_f": t_f, "t_c": t_c, "fault_duration_ms": (t_c - t_f) * 1000.0}

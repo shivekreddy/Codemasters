@@ -379,3 +379,29 @@ def test_one_plant_export_evaluates(tmp_path):
               if str(ws.cell(r, 1).value or "").startswith(("Positive", "Negative"))]
     assert "Positive-sequence results for the 1-phase faults at the GU terminals" in titles
     assert len(titles) == 4                          # POC + GU, pos + neg
+
+
+# ==============================================================================
+# Files of one case from different exports (different length)
+# ==============================================================================
+
+@needs_sample
+def test_files_of_different_length_are_cut_and_flagged(tmp_path):
+    import shutil
+    case = tmp_path / "FRT 1PH 0.05 Q0"
+    shutil.copytree(SAMPLE, case)
+    gu = case / "GU Terminal 2.csv"
+    lines = gu.read_text().splitlines()
+    gu.write_text("\n".join(lines + [lines[-1], lines[-1]]) + "\n")   # 2 extra rows
+    res = fc.evaluate_case(str(case))
+    assert any(f.startswith("files differ in length") for f in res["flags"])
+    assert res["locations"]["GU2"]["U1_pre"] == pytest.approx(
+        fc.evaluate_case(SAMPLE)["locations"]["GU2"]["U1_pre"])
+
+
+def test_time_bases_that_really_differ_are_an_error():
+    t = np.arange(0, 1, 0.1)
+    mk = lambda key, tt: fc.Location(key, key, tt, {"P": tt * 0}, {"P": tt * 0})
+    with pytest.raises(ValueError, match="time column differs"):
+        fc.align_time_bases({"POC": mk("POC", t), "GU1": mk("GU1", t + 0.05)},
+                            {"POC": "POC.csv", "GU1": "GU Terminal.csv"})
