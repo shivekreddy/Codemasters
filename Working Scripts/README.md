@@ -83,7 +83,7 @@ frequency study uses the POC only and does not need the plants.
 - `run_sim_only: true` runs existing cases without recreating them (e.g.
   after `frt_2_set_fault_impedance.py`).
 - `t_stop_s` (FRT stop time, also the end of the FRT plot time axis),
-  `fault_start_s`, `frt_reduced_p` / `frt_reduced_p_factor` (FRT at 93 % Pmax),
+  `fault_start_s`, `frt_reduced_p` / `frt_reduced_p_factor` (FRT Qmax/Qmin at 93 % Pmax, Q0 at 100 % Pmax),
   `freq_p_factor` (frequency cases at 70 % Pmax).
 
 ---
