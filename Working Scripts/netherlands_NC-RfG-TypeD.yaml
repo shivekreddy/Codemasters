@@ -317,12 +317,13 @@ requirements_type_2:
       - three_phase
       - two_phase
       - single_phase_to_ground
+    # FRT profile of a type D PPM (Netcode elektriciteit Art. 3.28 sub 3,
+    # RfG Table 7.2): Uret = 0 pu until tclear = 0.25 s, then linear to
+    # 0.85 pu at 3.0 s. Time from fault inception [s]: voltage [pu].
     voltage_time_curve_pu:
-      0.0: 1.0
-      0.14: 0.00
-      0.60: 0.15
-      3.00: 0.70
-      5.00: 0.90
+      0.00: 0.00
+      0.25: 0.00
+      3.00: 0.85
     stay_connected_above_curve: true
     post_fault_recovery:
       voltage_pu: 0.90
