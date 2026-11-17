@@ -26,12 +26,11 @@
 #
 # CHANGELOG v5.9 -> v5.10
 # -----------------------
-#   * POC line-to-line voltages m:ul:A/B/C (AB, BC, CA) are recorded in every
-#     case. On the POC page of the fault types in POC_LINE_VOLTAGE_FAULTS
-#     (default: 2PH) the top-left graph shows them instead of the
-#     line-to-ground voltages: in a phase-to-phase fault the faulted
-#     line-to-line voltage drops to Uret, the faulted phases to ground stay
-#     near 0.5 pu.
+#   * The 2PH cases are two-phase-to-ground faults (grid code fault type
+#     two_phase_to_ground, EvtShc i_shc = 3), still named "2PH" so case
+#     names, report names and the other scripts are unchanged. A pure
+#     phase-to-phase fault (two_phase) keeps the faulted phases to ground
+#     near 0.5 pu. List only one of the two in fault_types.
 #
 # CHANGELOG v5.8 -> v5.9
 # ----------------------
@@ -192,13 +191,6 @@ POC_PLOT_SIDE = "bus2"
 POC_PLOT_VARS = [("poc_breaker", f"m:{v}:{POC_PLOT_SIDE}", None)
                  for v in ("Psum", "Qsum", "i1P", "i1Q", "i2Q")]
 
-# POC line-to-line voltages (AB, BC, CA), recorded in every case. The POC
-# page's top-left graph shows them instead of the line-to-ground voltages for
-# these fault types (grid code names, e.g. "two_phase", "three_phase",
-# "single_phase_to_ground"); the GU pages always show line-to-ground.
-POC_LINE_VOLTAGE_FAULTS = ("two_phase",)
-POC_LL_VARS = [("poc_busbar", f"m:ul:{p}", None) for p in "ABC"]
-
 
 # ==============================================================================
 # FAULT TYPE MAP  — grid code string -> PowerFactory i_shc integer
@@ -212,9 +204,9 @@ FAULT_TYPE_MAP = {
 
 FT_SHORT = {
     "three_phase":            "3PH",
-    "two_phase":              "2PH",
+    "two_phase":              "2PH",     # phase-to-phase (not used for NL)
     "single_phase_to_ground": "1PH",
-    "two_phase_to_ground":    "2PHG",
+    "two_phase_to_ground":    "2PH",     # the 2PH cases: two-phase-to-ground
 }
 
 # Variables recorded to the ElmRes result file for each study case —
@@ -263,6 +255,9 @@ def generate_study_cases(grid_code_cfg, sim_cfg, Pmax, Qmax, Qmin):
         return [], {}
 
     fault_types   = frt.get("fault_types", [])
+    if "two_phase" in fault_types and "two_phase_to_ground" in fault_types:
+        raise RuntimeError("fault_types lists both two_phase and "
+                           "two_phase_to_ground; both are named 2PH. Keep one.")
     frt_scenarios = frt.get("frt_scenarios", [])
 
     if not fault_types or not frt_scenarios:
@@ -489,21 +484,19 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
             labels=[gcc.curve_label(name, var) for _, name, var, _ in curves])
 
     def fill_page(page_name, bus, bus_name, src, src_name, side="bus1",
-                  pq_range=None, line_voltages=False):
+                  pq_range=None):
         """
         2x2 page: phase voltages, sequence voltages, P/Q, currents.
         side: bus side of src for power and currents. pq_range: (min, max)
         of the P/Q graph, or None to leave it on auto scale.
-        line_voltages: top-left graph shows m:ul:A/B/C (line-to-line).
         """
-        u = "m:ul" if line_voltages else "m:u"
         page = desktop.GetPage(page_name, 1, "GrpPage")
         page.SetResults(elmRes)
         graphs = [
             graph(page, "Curve plot",
-                  [(bus, bus_name, f"{u}:A", gcc.C_BLUE),
-                   (bus, bus_name, f"{u}:B", gcc.C_RED),
-                   (bus, bus_name, f"{u}:C", gcc.C_GREEN)], 0, 0),
+                  [(bus, bus_name, "m:u:A", gcc.C_BLUE),
+                   (bus, bus_name, "m:u:B", gcc.C_RED),
+                   (bus, bus_name, "m:u:C", gcc.C_GREEN)], 0, 0),
             graph(page, "Curve plot(1)",
                   [(bus, bus_name, "m:u1", gcc.C_BLUE),
                    (bus, bus_name, "m:u2", gcc.C_RED)], 0, 1),
@@ -531,8 +524,7 @@ def setup_plot_pages(app, sc_cfg, recovery_time_s, POC_BB, POC_BRK, plants,
     # POC page: busbar voltages + breaker power and currents (export positive)
     fill_page("POC", POC_BB, names["poc_busbar"], POC_BRK, names["poc_breaker"],
               side=POC_PLOT_SIDE,
-              pq_range=poc_pq_range(sc_cfg["psetp"], sc_cfg["qsetp"]),
-              line_voltages=sc_cfg["fault_type"] in POC_LINE_VOLTAGE_FAULTS)
+              pq_range=poc_pq_range(sc_cfg["psetp"], sc_cfg["qsetp"]))
 
     # GU pages — one per plant
     for n, (page_name, (GU_BB, Inverter)) in enumerate(
@@ -1192,7 +1184,7 @@ def _run(app):
                                   "ComInc — variables not recorded.")
                 else:
                     add_recorded_results(elmRes, elm_objects, app,
-                                         record_vars + POC_PLOT_VARS + POC_LL_VARS)
+                                         record_vars + POC_PLOT_VARS)
 
                 # --------------------------------------------------------------
                 # E. Plot pages

@@ -141,7 +141,7 @@ requirements_type_1:
     evaluation_method: rms
     fault_types:
       - three_phase
-      - two_phase
+      - two_phase_to_ground     # 2PH cases: two-phase-to-ground
       - single_phase_to_ground
     voltage_time_curve_pu:
       0.0: 1.0
@@ -315,7 +315,7 @@ requirements_type_2:
     evaluation_method: rms
     fault_types:
       - three_phase
-      - two_phase
+      - two_phase_to_ground     # 2PH cases: two-phase-to-ground
       - single_phase_to_ground
     # FRT profile of a type D PPM (Netcode elektriciteit Art. 3.28 sub 3,
     # RfG Table 7.2): Uret = 0 pu until tclear = 0.25 s, then linear to

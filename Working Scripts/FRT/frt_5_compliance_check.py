@@ -392,15 +392,6 @@ def k_verdict(k: float, limited: bool, k_set: float, k_tol: float) -> str:
     return "limited*" if limited else "NON-COMPLIANT"
 
 
-def u_ll_faulted_2p(u1: float, u2: float, ua_unfaulted: float) -> float:
-    """
-    Faulted line-to-line voltage for a 2P fault without phasors (no zero
-    sequence, so |V1 + V2| = |Va| of the unfaulted phase):
-      |V1 - V2| = sqrt(2 U1^2 + 2 U2^2 - Ua^2)    (line pu)
-    """
-    return math.sqrt(max(2 * u1 ** 2 + 2 * u2 ** 2 - ua_unfaulted ** 2, 0.0))
-
-
 def _interp_crossing(t0, x0, t1, x1, level):
     """Time where x crosses `level` between (t0, x0) and (t1, x1)."""
     if t1 == t0 or x1 == x0:
@@ -769,13 +760,10 @@ def evaluate_case(folder: str, cfg: dict = CONFIG, tf: float | None = None,
     s = poc.scaled
     if case.fault == "3P":
         v["retained_measure"], v["retained_pu"] = "U1", s["U1"][i_c]
-    elif case.fault == "1P":
+    else:
+        # 1P and 2P (two-phase-to-ground): lowest faulted phase to ground
         v["retained_measure"] = "min phase L-G"
         v["retained_pu"] = min(s[p][i_c] for p in ("Ua", "Ub", "Uc"))
-    else:
-        ua = max(s[p][i_c] for p in ("Ua", "Ub", "Uc"))       # unfaulted phase
-        v["retained_measure"] = "U_LL,faulted"
-        v["retained_pu"] = v["U_LL_faulted"] = u_ll_faulted_2p(s["U1"][i_c], s["U2"][i_c], ua)
     if abs(v["retained_pu"] - case.retained_pct / 100) > cfg["retained_tol_pu"]:
         flags.append(f"retained voltage {v['retained_pu']:.3f} pu "
                      f"({v['retained_measure']}) vs target {case.retained_pct / 100:.2f}")

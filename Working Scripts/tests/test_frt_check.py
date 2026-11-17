@@ -84,16 +84,6 @@ def test_worst_phase_current_and_verdicts():
     assert fc.k_verdict(6.0, False, 5.0, 0.1) == "above setting"
 
 
-def test_u_ll_faulted_2p_matches_phasors():
-    a = complex(math.cos(2 * math.pi / 3), math.sin(2 * math.pi / 3))
-    v1, v2 = 0.6 + 0j, 0.4 * complex(math.cos(0.3), math.sin(0.3))
-    va, vb, vc = v1 + v2, a * a * v1 + a * v2, a * v1 + a * a * v2
-    # line pu: |Vb - Vc| / sqrt(3) equals |V1 - V2|
-    expected = abs(vb - vc) / math.sqrt(3)
-    assert fc.u_ll_faulted_2p(abs(v1), abs(v2), abs(va)) == pytest.approx(abs(v1 - v2))
-    assert expected == pytest.approx(abs(v1 - v2))
-
-
 def step_response(t, t_f, t_c, i_pre, i_flt, tau=0.002, spike=None):
     i = np.where(t <= t_f, i_pre,
                  i_pre + (i_flt - i_pre) * (1 - np.exp(-(t - t_f) / tau)))
