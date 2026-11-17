@@ -31,7 +31,7 @@
 #     (default: 2PH) the top-left graph shows them instead of the
 #     line-to-ground voltages: in a phase-to-phase fault the faulted
 #     line-to-line voltage drops to Uret, the faulted phases to ground stay
-#     near 0.5 pu. Existing runs: FRT\frt_8_poc_line_voltages.py.
+#     near 0.5 pu.
 #
 # CHANGELOG v5.8 -> v5.9
 # ----------------------
