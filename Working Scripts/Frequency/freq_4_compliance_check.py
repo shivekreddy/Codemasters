@@ -365,7 +365,9 @@ def manifest_events(entry: dict) -> list[tuple[float, float]]:
     """[(time_s, freq_hz), ...] from the manifest step_events, sorted."""
     ev = entry.get("step_events")
     if not ev:
-        raise ValueError("No step_events in the manifest for this case.")
+        raise ValueError("No step_events for this case: re-export it with the "
+                         "latest freq_2 / freq_2b (they read the events from the "
+                         "study case when the run manifest is missing).")
     out = []
     for e in ev:
         if isinstance(e, dict):
@@ -547,9 +549,10 @@ def evaluate_insensitivity(steps: list[dict], P0: float, cfg: dict = CONFIG) -> 
 def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) -> dict:
     """Evaluate one Step case: pre-event checks and every step from the manifest."""
     name = entry["name"]
-    mode = MODES.get(str(entry.get("type", "")).upper())
+    ctype = entry.get("type") or name.split()[0]          # "LFSMO Step" -> LFSMO
+    mode = MODES.get(str(ctype).upper())
     if mode is None:
-        raise ValueError(f"Unknown case type '{entry.get('type')}'.")
+        raise ValueError(f"Unknown case type '{ctype}'.")
     if entry.get("missing_columns"):
         raise ValueError(f"export has missing columns {entry['missing_columns']} "
                          f"(written as zeros): re-export before evaluating.")

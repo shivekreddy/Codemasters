@@ -870,6 +870,37 @@ def resolve_config_path(script_file, config_file=None):
     return os.path.join(folders[0], CONFIG_NAMES[-1])
 
 
+def freq_case_meta_from_case(case):
+    """
+    Case metadata read from the study case itself, for when the run manifest
+    is missing (e.g. paths.root changed): type and variant from the name
+    ("LFSMO Step"), step events from the case's EvtParam events named
+    "<TYPE>_Step_<f>Hz_t<t>s" (freq_1), t_stop from its ComSim. psetp is not
+    recovered (freq_4 then skips the P0 cross-check and flags it).
+    """
+    parts = case.loc_name.split()
+    meta = {"name": case.loc_name, "meta_source": "study case (no run manifest)"}
+    if len(parts) == 2 and parts[1] in ("Ramp", "Step"):
+        meta["type"], meta["variant"] = parts[0].upper(), parts[1]
+    events = []
+    for evt in case.GetContents("*_Step_*.EvtParam", 1) or []:
+        try:
+            if str(getattr(evt, "variable", "F0Hz")) != "F0Hz":
+                continue
+            events.append((float(evt.time), float(str(evt.value).strip())))
+        except Exception:
+            continue
+    if events:
+        meta["step_events"] = sorted(events)
+    try:
+        sims = case.GetContents("*.ComSim", 1)
+        if sims:
+            meta["t_stop"] = float(sims[0].tstop)
+    except Exception:
+        pass
+    return meta
+
+
 def _write_case_json(export_dir, csv_name, entry, run_folder):
     """<case>.json next to the case's CSV: its manifest entry + where it came from."""
     data = dict(entry, run_folder=run_folder,
@@ -974,8 +1005,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
             meta = {c["name"]: c for c in run_manifest.get("cases", [])}
             break
     if not meta:
-        app.PrintWarn("Run manifest not found: case metadata (event times, "
-                      "setpoints) will be missing from the export manifest.")
+        app.PrintWarn("Run manifest not found: case type, step events and "
+                      "t_stop are read from the study cases; psetp is not "
+                      "available (freq_4 skips the P0 cross-check).")
 
     # --- Export every study case in the run folder ---------------------------
     cases = sorted(sc_folder.GetContents("*.IntCase"), key=lambda c: c.loc_name)
@@ -996,6 +1028,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
         name  = case.loc_name
         fname = case_csv_filename(name)
         entry = dict(meta.get(name, {"name": name}))
+        if "type" not in entry or "step_events" not in entry:
+            for k, v in freq_case_meta_from_case(case).items():
+                entry.setdefault(k, v)
         n_rows, last_t, missing = export_case_to_csv(
             app, case, elm_objects, record_vars, os.path.join(export_dir, fname))
 
