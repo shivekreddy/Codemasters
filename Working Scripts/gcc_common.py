@@ -901,6 +901,20 @@ def freq_case_meta_from_case(case):
     return meta
 
 
+def _existing_case_with_results(export_dir, csv_name):
+    """The <case>.json entry already in the folder if its export has results
+    and its CSV is there, else None."""
+    jpath = os.path.join(export_dir, csv_name[:-4] + ".json")
+    if not (os.path.isfile(jpath) and os.path.isfile(os.path.join(export_dir, csv_name))):
+        return None
+    try:
+        with open(jpath, "r", encoding="utf-8") as f:
+            entry = json.load(f)
+    except Exception:
+        return None
+    return entry if entry.get("export_status") == "ok" else None
+
+
 def _write_case_json(export_dir, csv_name, entry, run_folder):
     """<case>.json next to the case's CSV: its manifest entry + where it came from."""
     data = dict(entry, run_folder=run_folder,
@@ -1031,8 +1045,21 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
         if "type" not in entry or "step_events" not in entry:
             for k, v in freq_case_meta_from_case(case).items():
                 entry.setdefault(k, v)
+        csv_path = os.path.join(export_dir, fname)
+        tmp_path = csv_path + ".tmp"
         n_rows, last_t, missing = export_case_to_csv(
-            app, case, elm_objects, record_vars, os.path.join(export_dir, fname))
+            app, case, elm_objects, record_vars, tmp_path)
+
+        # No results in this model, but the folder already holds results for
+        # the case (e.g. pasted in from another model with freq_2b): keep them.
+        kept = _existing_case_with_results(export_dir, fname) if last_t is None else None
+        if kept is not None:
+            os.remove(tmp_path)
+            app.PrintPlain(f"  [{name}] -> no results in this model; kept the existing "
+                           f"{fname} (from '{kept.get('run_folder', '?')}')")
+            entries.append(kept)
+            continue
+        os.replace(tmp_path, csv_path)
 
         entry["csv_file"]        = fname
         entry["n_rows"]          = n_rows
