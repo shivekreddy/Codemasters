@@ -159,7 +159,7 @@ Every export and check uses the **latest** run by that timestamp unless
 | 2 | `freq_2_export_raw_data.py` | One CSV per case plus `export_manifest.json` (with step times and psetp from the run manifest), and a `<case>.json` next to each CSV with that case's entry. Cases without results are written as zeros and marked. | none |
 | 2b | `freq_2b_export_selected_cases.py` | Optional, for cases run in another model. Same CSV and `.json` files as step 2 (no `export_manifest.json`), only for the cases switched on (`"FSM Step": 1`, ...), into `OUTPUT_DIR` (default `<root>\Freq Selected Cases`). Copy all files (`.csv` and `.json`) into the `Freq Raw Data\<run>` folder that step 4 checks: step 4 reads the `.json` files, and they take priority over that folder's `export_manifest.json`. Exporting again into the same folder adds or replaces cases. | `CASES`, `OUTPUT_DIR`, `RUN_FOLDER` |
 | 3 | `freq_3_export_plots.py` | PNG of Plot 1 to 3 of every case. | `FORMAT` |
-| 4 | `freq_4_compliance_check.py` | Evaluates every Step case and writes `freq_results.xlsx`. | `PF_PLOTS` |
+| 4 | `freq_4_compliance_check.py` | Evaluates every Step and Ramp case and writes `freq_results.xlsx` (Summary tab first, then per mode the report tables: overview of steps and ramps, step results with Ti / Ts, ramp results with Ti). Ramps are detected in the POC frequency; ramp Ti is the response lag over the middle 50 % of the ramp, Ts after the ramp end is reported only. | `PF_PLOTS` |
 
 **Frequency workbook (`freq_results.xlsx`):**
 - **Summary** (first tab): every case in the manifest with Result and verdicts

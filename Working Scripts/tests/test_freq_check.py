@@ -4,8 +4,8 @@ Tests for freq_4_compliance_check.py
 Synthetic tests (always run): p_expected against the full park and HVC
 tables (Freq_Calcs_clean.xlsx / DNV 25-1670 Rev. 2), step response with a
 known pure delay and first-order lag on a non-uniform time base with
-duplicate timestamps, threshold steps, FSM insensitivity, manifest handling
-(missing columns, ramp cases skipped), bus1-only sign flip.
+duplicate timestamps, threshold steps, ramps with a known lag, FSM insensitivity, manifest handling
+(missing columns, ramp case without CSV), bus1-only sign flip.
 
 Acceptance tests (samples "LFSMO_Step.csv", "LFSMU_Step.csv"): run when the
 files are in tests/data/ or FREQ_SAMPLE_DIR points at their folder;
@@ -287,7 +287,7 @@ def test_run_missing_columns_and_ramp(tmp_path):
     assert list(x)[0] == "Summary"
     assert {"info", "LFSM-O", "raw", "flags"} <= set(x)
     skipped = " ".join(map(str, x["info"]["Value"]))
-    assert "missing columns" in skipped and "ramp evaluation not implemented" in skipped
+    assert "missing columns" in skipped and "LFSMO_Ramp.csv" in skipped   # ramp CSV absent
     assert "no_result_data" in skipped
     # Summary: every manifest case listed, failed / error cells red
     import openpyxl
@@ -299,10 +299,10 @@ def test_run_missing_columns_and_ramp(tmp_path):
     assert rows["LFSMO Step"].value == "PASS"
     assert rows["LFSMU Step"].value == "ERROR"
     assert rows["FSM Step"].value == "NO RESULTS"
-    assert rows["LFSMO Ramp"].value == "not evaluated"
+    assert rows["LFSMO Ramp"].value == "ERROR"
     red = lambda c: c.fill.fgColor.rgb.endswith(fq.FAIL_FILL)
     assert red(rows["LFSMU Step"]) and red(rows["FSM Step"])
-    assert not red(rows["LFSMO Step"]) and not red(rows["LFSMO Ramp"])
+    assert not red(rows["LFSMO Step"]) and red(rows["LFSMO Ramp"])
 
 
 def test_summary_marks_failed_criterion_red(tmp_path):
@@ -393,3 +393,85 @@ def test_sample_lfsmu_step():
     assert list(tab["Ts [s]"]) == ["-", 4.1, 3.6, "-"]
     assert all(s["flags"] == [] for s in res["steps"])
     assert res["flags"] == []
+
+
+# ==============================================================================
+# Ramp cases
+# ==============================================================================
+
+RAMP_RATE = 0.2 / 60.0      # Hz/s
+
+
+def synth_ramp(levels, mode, p0=P0, hold=30.0, lag=1.0, dt=0.05):
+    """
+    POC export for a ramp sequence: from levels[0], ramps at 0.2 Hz/min to
+    each next level, with `hold` s before the first ramp and after each. P is
+    P-calculated of the frequency `lag` s earlier (pure delay). Duplicate rows
+    at the ramp starts (as PowerFactory writes at events).
+    """
+    knots_t, knots_f, tk = [0.0], [levels[0]], hold
+    for a, b in zip(levels, levels[1:]):
+        knots_t += [tk, tk + abs(b - a) / RAMP_RATE]
+        knots_f += [a, b]
+        tk = knots_t[-1] + hold
+    knots_t.append(tk); knots_f.append(levels[-1])
+    t = np.round(np.arange(-2.0, tk + 1e-9, dt), 6)
+    t = np.sort(np.concatenate([t, np.array(knots_t[1:-1:2])]))
+    f = np.interp(t, knots_t, knots_f)
+    f_lag = np.interp(t - lag, knots_t, knots_f)
+    p = np.array([fq.p_expected(x, mode, p0)[0] for x in f_lag])
+    return t, f, p
+
+
+def ramp_entry(folder, name, ctype, t, f, p):
+    e = write_case(folder, name, ctype, [(0, 50.0)], t, f, p)
+    e.pop("step_events")
+    e["variant"] = "Ramp"
+    return e
+
+
+def test_ramp_lag_gives_ti(tmp_path):
+    t, f, p = synth_ramp([50.0, 50.1, 50.2], "FSM", lag=1.0)
+    e = ramp_entry(str(tmp_path), "FSM Ramp", "FSM", t, f, p)
+    res = fq.evaluate_ramp_case(os.path.join(str(tmp_path), e["csv_file"]), e)
+    assert [(s["f_from"], s["f_to"]) for s in res["steps"]] == [(50.0, 50.1), (50.1, 50.2)]
+    for s in res["steps"]:
+        assert s["Ti_s"] == pytest.approx(1.0, abs=0.02)
+        assert abs(s["error_pct"]) < 0.01
+        # 0.2 Hz/min, 5 % droop: 8 % Pref/min
+        assert s["P_rate_MW_per_min"] == pytest.approx(-0.08 * P0, rel=0.01)
+        assert s["f_rate_Hz_per_min"] == pytest.approx(0.2, rel=0.01)
+        assert not s["flags"], s["flags"]
+    row = fq.case_summary(res)
+    assert row["Result"] == ("PASS", False)
+    assert "report only" in row["Ts"][0]
+
+
+def test_threshold_ramp_no_response(tmp_path):
+    t, f, p = synth_ramp([50.0, 50.2, 50.5], "LFSM-O", lag=1.0)
+    e = ramp_entry(str(tmp_path), "LFSMO Ramp", "LFSMO", t, f, p)
+    res = fq.evaluate_ramp_case(os.path.join(str(tmp_path), e["csv_file"]), e)
+    first, second = res["steps"]
+    assert first["threshold_step"] and first["Ti_s"] is None and first["threshold_ok"]
+    assert second["P_calc"] == pytest.approx(fq.p_expected(50.5, "LFSM-O", P0)[0])
+    assert second["Ti_s"] == pytest.approx(1.0, abs=0.02)
+    assert second["eff_droop_pct"] == pytest.approx(5.0, rel=0.01)
+
+
+def test_run_writes_ramp_tables(tmp_path):
+    d = str(tmp_path)
+    ts, fs, ps = synth(LFSMO_EV, "LFSM-O")
+    step = write_case(d, "LFSMO Step", "LFSMO", LFSMO_EV, ts, fs, ps)
+    tr, fr, pr = synth_ramp([50.0, 50.2, 50.5, 50.2, 50.0], "LFSM-O")
+    ramp = ramp_entry(d, "LFSMO Ramp", "LFSMO", tr, fr, pr)
+    manifest(d, [step, ramp])
+    out = os.path.join(d, "freq_results.xlsx")
+    assert fq.run(d, out) == 0
+    import openpyxl
+    wb = openpyxl.load_workbook(out)
+    vals = [c.value for row in wb["LFSM-O"].iter_rows() for c in row if c.value is not None]
+    assert "Simulation of frequency ramps" in vals
+    assert "LFSM-O simulation results at the POC (frequency ramps)" in vals
+    ws = wb["Summary"]
+    res = {ws.cell(r, 1).value: ws.cell(r, 3).value for r in range(5, ws.max_row + 1)}
+    assert res == {"LFSMO Step": "PASS", "LFSMO Ramp": "PASS"}

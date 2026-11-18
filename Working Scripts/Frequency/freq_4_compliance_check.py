@@ -11,7 +11,9 @@ Input: one run folder in "Freq Raw Data", written by freq_2_export_raw_data.py:
     LFSMO_Step.csv, LFSMU_Step.csv, FSM_Step.csv, FSMINS_Step.csv, ...
     export_manifest.json   (event times, psetp, missing_columns)
 Step event times come from the manifest; they are not detected in the data.
-Ramp cases are not evaluated yet (skipped with a message).
+Ramp cases: the ramps are detected in the POC frequency (the ramp profile
+comes from the external .txt file, not from the manifest); Ti is the response
+lag over the middle of each ramp (Tables 4-4, 4-7, 4-10).
 
 Folders: from the project config next to this script (paths.root). Input is
 the latest run in <root>\\Freq Raw Data (or paths.freq_run); the workbook goes
@@ -113,6 +115,15 @@ CONFIG: dict = {
     "insensitivity_limit_mHz": 10.0,
     "insens_no_resp_frac": 0.10,     # "no response": |dP| < 10 % of the droop value
     "insens_present_frac": 0.50,     # "present": >= 50 % of the droop value, right sign
+    # ramp cases (DNV 25-1670 Rev. 2 Tables 4-4, 4-7, 4-10): ramps detected in
+    # the POC frequency; Ti = response lag over the middle 50 % of the ramp
+    "ramp_grid_s": 0.05,             # resampling step for the ramp detection
+    "ramp_detect_frac": 0.5,         # |df/dt| > 50 % of the nominal rate = ramp
+    "ramp_min_s": 1.0,               # ... for at least this long
+    "ramp_level_tol_Hz": 0.0005,     # start / end: f within 0.5 mHz of the hold level
+    "ramp_rate_tol_frac": 0.02,      # measured f ramp rate vs nominal (flag)
+    "ramp_p_rate_tol_frac": 0.05,    # P ramp rate vs expected (flag)
+    "ramp_mid_frac": 0.5,            # Ti and rates over the middle 50 % of the ramp
 }
 
 MODES = {"LFSMO": "LFSM-O", "LFSMU": "LFSM-U", "FSM": "FSM", "FSMINS": "FSM-INS"}
@@ -585,11 +596,208 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
         t_next = events[k + 1][0] if k + 1 < len(events) else None
         steps.append(evaluate_step(cd, k + 1, t_ev, t_next, f_from, f_to,
                                    P0, psetp, cfg))
-    res = {"name": name, "mode": mode, "csv": os.path.basename(path), "P0": P0,
+    res = {"name": name, "mode": mode, "variant": "Step", "csv": os.path.basename(path), "P0": P0,
            "pre": pre, "steps": steps, "flags": flags}
     if mode == "FSM-INS":
         res["insens"] = evaluate_insensitivity(steps, P0, cfg)
     return res
+
+
+# ------------------------------------------------------------------------------
+# Ramp cases
+# ------------------------------------------------------------------------------
+
+def is_ramp(entry: dict) -> bool:
+    return entry.get("variant") == "Ramp" or "ramp" in str(entry.get("name", "")).lower()
+
+
+def detect_ramps(t: np.ndarray, f: np.ndarray, cfg: dict = CONFIG) -> list[dict]:
+    """
+    Frequency ramps in the POC frequency (the ramp profile comes from the
+    external .txt file, not from the manifest): |df/dt| above
+    ramp_detect_frac x the nominal rate for at least ramp_min_s. Per ramp the
+    hold levels before and after (f_from, f_to, rounded to 1 mHz), the start
+    (last sample still at f_from) and the end (first sample at f_to).
+    """
+    dt = cfg["ramp_grid_s"]
+    tu, iu = np.unique(t, return_index=True)            # first of duplicate rows
+    fu = f[iu]
+    tg = np.arange(tu[0], tu[-1] + 1e-9, dt)
+    fg = np.interp(tg, tu, fu)
+    h = max(int(round(0.5 / dt)), 1)                     # slope over 1 s
+    slope = np.zeros_like(fg)
+    slope[h:-h] = (fg[2 * h:] - fg[:-2 * h]) / (tg[2 * h:] - tg[:-2 * h])
+    rate = cfg["ramp_rate_Hz_per_min"] / 60.0
+    mask = np.abs(slope) > cfg["ramp_detect_frac"] * rate
+    runs = [(a, b) for a, b in _runs(mask) if tg[b] - tg[a] >= cfg["ramp_min_s"]]
+    tol = cfg["ramp_level_tol_Hz"]
+    ramps = []
+    for k, (a, b) in enumerate(runs):
+        lo = runs[k - 1][1] if k else 0
+        hi = runs[k + 1][0] if k + 1 < len(runs) else len(tg) - 1
+        pre = fg[max(lo, a - int(2.0 / dt)):max(a - h, lo + 1)]
+        post = fg[min(b + h, hi - 1):min(hi, b + int(2.0 / dt)) + 1]
+        f_from = round(float(np.median(pre if pre.size else fg[a:a + 1])), 3)
+        f_to = round(float(np.median(post if post.size else fg[b:b + 1])), 3)
+        t_mid = 0.5 * (tg[a] + tg[b])
+        before = np.nonzero((t <= t_mid) & (np.abs(f - f_from) <= tol))[0]
+        after = np.nonzero((t >= t_mid) & (np.abs(f - f_to) <= tol))[0]
+        if before.size == 0 or after.size == 0:
+            continue
+        i_s, i_t = int(before[-1]), int(after[0])
+        ramps.append({"f_from": f_from, "f_to": f_to, "i_start": i_s, "i_end": i_t,
+                      "t_start": float(t[i_s]), "t_end": float(t[i_t])})
+    return ramps
+
+
+def _fit_slope(x: np.ndarray, y: np.ndarray) -> float:
+    """Least-squares slope dy/dx."""
+    if x.size < 2 or np.ptp(x) == 0:
+        return float("nan")
+    return float(np.polyfit(x, y, 1)[0])
+
+
+def evaluate_ramp(cd: CaseData, k: int, rp: dict, i_next: int, P0: float,
+                  cfg: dict = CONFIG) -> dict:
+    """
+    One frequency ramp (NBNL 4.2.1-4.2.3; DNV 25-1670 Rev. 2 Tables 4-4, 4-7,
+    4-10): P-calculated, P-simulated (end of the hold after the ramp), error,
+    effective droop, Ti as the response lag over the middle 50 % of the ramp
+    (time shift between the expected and the simulated P), P ramp rate, and
+    Ts after the end of the ramp (report only). Ramps with no expected
+    response (to a threshold) are checked for no response.
+    """
+    t, p, f, mode = cd.t, cd.P, cd.f, cd.mode
+    f_from, f_to = rp["f_from"], rp["f_to"]
+    i_s, i_t = rp["i_start"], rp["i_end"]
+    t_s, t_t = rp["t_start"], rp["t_end"]
+    t_n = float(t[i_next])
+    flags = []
+    pc_from, c1 = p_expected(f_from, mode, P0, cfg)
+    pc_to, c2 = p_expected(f_to, mode, P0, cfg)
+    if c1 or c2:
+        flags.append("P-calculated clipped to [P_min_reg, P_avail]")
+    pb, ps = float(p[i_s]), float(p[i_next])
+    dpe, dps = pc_to - pc_from, ps - pb
+    err = (ps - pc_to) / pc_to * 100.0 if pc_to else None
+    if err is not None and abs(err) > cfg["error_limit_pct"]:
+        flags.append(f"error {err:+.3f} % beyond +/-{cfg['error_limit_pct']:g} %")
+
+    # measured frequency ramp rate over the middle of the ramp
+    dur = t_t - t_s
+    q = (1.0 - cfg["ramp_mid_frac"]) / 2.0
+    mid = window(t, t_s + q * dur, t_t - q * dur)
+    f_rate = _fit_slope(t[mid], f[mid]) * 60.0
+    nom = math.copysign(cfg["ramp_rate_Hz_per_min"], f_to - f_from)
+    if not math.isfinite(f_rate) or abs(f_rate - nom) > cfg["ramp_rate_tol_frac"] * abs(nom):
+        flags.append(f"frequency ramp rate {f_rate:+.4f} Hz/min, expected {nom:+.2f} Hz/min")
+    if t_n - t_t < cfg["hold_min_s"]:
+        flags.append(f"hold after the ramp {t_n - t_t:.1f} s shorter than "
+                     f"{cfg['hold_min_s']:g} s (P may not have settled)")
+
+    end = min(t_n, float(t[-1]))
+    m2 = window(t, end - cfg["settle_window_s"], end)
+    m2[i_next] = True
+    ptp2, mean2 = float(np.ptp(p[m2])), float(np.mean(p[m2]))
+    if ptp2 > cfg["settle_frac"] * P0:
+        flags.append(f"not settled: P max-min {ptp2:.3f} MW over the last "
+                     f"{cfg['settle_window_s']:g} s (2 s mean {mean2:.3f} MW)")
+
+    r = {"case": cd.name, "mode": mode, "event": k, "variant": "Ramp",
+         "t_event_s": t_s, "t_ramp_end_s": t_t, "t_next_s": t_n,
+         "i_e": i_s, "i_ramp_end": i_t, "i_next": i_next,
+         "t_e_sample_s": float(t[i_s]), "t_sim_sample_s": float(t[i_next]),
+         "f_from": f_from, "f_to": f_to, "df_Hz": f_to - f_from,
+         "f_rate_Hz_per_min": f_rate, "f_settled": float(f[i_next]),
+         "P_calc_from": pc_from, "P_calc": pc_to, "dP_expected": dpe,
+         "P_calc_psetp": None, "P_before": pb, "P_sim": ps, "dP_sim": dps,
+         "error_pct": err, "P_2s_ptp": ptp2, "P_2s_mean": mean2,
+         "threshold_step": abs(dpe) < 1e-9, "eff_droop_pct": None,
+         "Ti_s": None, "Ts_s": None, "overshoot_pct": None,
+         "P_rate_MW_per_min": None, "P_rate_exp_MW_per_min": None,
+         "osc_pp": [], "osc_growing": False}
+
+    if r["threshold_step"]:
+        lim = cfg["threshold_resp_frac"] * P0
+        if abs(dps) >= lim:
+            flags.append(f"response inside the deadband / threshold not respected "
+                         f"({dps:+.3f} MW, limit {lim:.3f} MW)")
+            if not fsm_active(mode):
+                flags.append("FSM appears active")
+        r["threshold_ok"] = abs(dps) < lim
+    else:
+        pref = step_pref(f_from, f_to, mode, P0, cfg)
+        r["Pref_MW"] = pref
+        if pref is not None and dps != 0:
+            r["eff_droop_pct"] = -((f_to - f_from) / cfg["fn_Hz"]) / (dps / pref) * 100.0
+        # expected P along the ramp, anchored at the simulated P before it
+        pc_t = np.array([p_expected(x, mode, P0, cfg)[0] for x in f[mid]]) - pc_from + pb
+        s_exp = _fit_slope(t[mid], pc_t)
+        s_sim = _fit_slope(t[mid], p[mid])
+        if math.isfinite(s_exp) and abs(s_exp) > 1e-9:
+            r["Ti_s"] = float(np.mean(pc_t - p[mid]) / s_exp)
+            r["P_rate_exp_MW_per_min"] = s_exp * 60.0
+            r["P_rate_MW_per_min"] = s_sim * 60.0
+            if abs(s_sim - s_exp) > cfg["ramp_p_rate_tol_frac"] * abs(s_exp):
+                flags.append(f"P ramp rate {s_sim * 60:+.3f} MW/min, expected "
+                             f"{s_exp * 60:+.3f} MW/min (beyond "
+                             f"+/-{cfg['ramp_p_rate_tol_frac'] * 100:g} %)")
+            if r["Ti_s"] > cfg["ti_justify_s"]:
+                flags.append(f"Ti {r['Ti_s']:.2f} s > {cfg['ti_justify_s']:g} s: "
+                             f"justification needed")
+            elif r["Ti_s"] < 0:
+                flags.append(f"Ti {r['Ti_s']:.2f} s negative: P ahead of the expected ramp")
+        else:
+            flags.append("no expected P change over the middle of the ramp: Ti not evaluated")
+        band = cfg["ts_band_frac"] * abs(dpe)
+        ts = settling_time(t, p, i_t, i_next, ps, band, cfg["ts_ignore_s"])
+        r["Ts_s"] = ts
+        if ts is None:
+            flags.append("Ts: P not within the band at the end of the hold")
+        r["overshoot_pct"] = overshoot_pct(p[i_t:i_next + 1], ps, dpe)
+        t_osc = t_t + (ts if ts is not None else 0.0)
+        r["osc_growing"], r["osc_pp"] = oscillation_growing(
+            t, p, t_osc, end, cfg["osc_window_s"], cfg["osc_abs_tol_MW"])
+        if r["osc_growing"]:
+            flags.append("possible undamped oscillation")
+    r["flags"] = flags
+    return r
+
+
+def evaluate_ramp_case(path: str, entry: dict, cfg: dict = CONFIG) -> dict:
+    """Evaluate one Ramp case: ramps detected in the POC frequency."""
+    name = entry["name"]
+    ctype = entry.get("type") or name.split()[0]
+    mode = MODES.get(str(ctype).upper())
+    if mode is None:
+        raise ValueError(f"Unknown case type '{ctype}'.")
+    if mode == "FSM-INS":
+        raise ValueError("FSM insensitivity ramps are not evaluated (use the Step case).")
+    if entry.get("missing_columns"):
+        raise ValueError(f"export has missing columns {entry['missing_columns']} "
+                         f"(written as zeros): re-export before evaluating.")
+    cd = load_case(path, name, mode, cfg)
+    flags = list(cd.flags)
+    if entry.get("complete") is False:
+        flags.append(f"run incomplete: ends at {entry.get('t_end_s')} s, "
+                     f"t_stop {entry.get('t_stop')} s")
+    ramps = detect_ramps(cd.t, cd.f, cfg)
+    if not ramps:
+        raise ValueError("no frequency ramp found in the POC frequency "
+                         f"(nominal {cfg['ramp_rate_Hz_per_min']:g} Hz/min).")
+    psetp = entry.get("psetp")
+    P0, pre, pflags = pre_event_checks(cd, ramps[0]["i_start"], psetp, cfg)
+    flags += pflags
+    for a, b in zip(ramps, ramps[1:]):
+        if abs(a["f_to"] - b["f_from"]) > cfg["f_level_tol_Hz"]:
+            flags.append(f"ramp sequence: {a['f_to']:g} Hz after one ramp, next starts "
+                         f"at {b['f_from']:g} Hz")
+    steps = []
+    for k, rp in enumerate(ramps):
+        i_next = ramps[k + 1]["i_start"] if k + 1 < len(ramps) else len(cd.t) - 1
+        steps.append(evaluate_ramp(cd, k + 1, rp, i_next, P0, cfg))
+    return {"name": name, "mode": mode, "variant": "Ramp", "csv": os.path.basename(path),
+            "P0": P0, "pre": pre, "steps": steps, "flags": flags}
 
 
 # ==============================================================================
@@ -688,6 +896,10 @@ def case_summary(res: dict, cfg: dict = CONFIG) -> dict:
         lim = cfg["ts_limit_s"].get(m, 30.0)
         if not resp:
             row["Ts"] = ("-", False)
+        elif res.get("variant") == "Ramp":
+            ok = [x for x in tss if x is not None]
+            row["Ts"] = ((f"max {max(ok):.1f} s after ramp end" if ok else "not settled")
+                         + " (report only)", False)
         elif any(x is None for x in tss):
             row["Ts"] = ("FAIL (not settled)", True)
         else:
@@ -778,7 +990,14 @@ def info_sheet(results: list[dict], manifest: dict, skipped: list[str],
              ("Ti definition", f"|P - P-before| >= max({cfg['ti_threshold_frac'] * 100:g} % |dP exp|, "
                                f"{cfg['ti_threshold_min_MW']} MW) for {cfg['persist_s']} s (project proposal)"),
              ("Ts definition", f"P within P-sim +/- {cfg['ts_band_frac'] * 100:g} % |dP exp|, "
-                               f"excursions < {cfg['ts_ignore_s'] * 1000:g} ms ignored (project proposal)")]
+                               f"excursions < {cfg['ts_ignore_s'] * 1000:g} ms ignored (project proposal)"),
+             ("Ramp Ti definition", "response lag over the middle "
+                                    f"{cfg['ramp_mid_frac'] * 100:g} % of the ramp: mean(P-calc(f(t)) - P-sim(t)) "
+                                    "/ (dP-calc/dt), P-calc anchored at P before the ramp"),
+             ("Ramp Ts", "after the end of the ramp, same band as for steps (report only)"),
+             ("Ramp detection", f"|df/dt| > {cfg['ramp_detect_frac'] * 100:g} % of "
+                                f"{cfg['ramp_rate_Hz_per_min']:g} Hz/min for >= {cfg['ramp_min_s']:g} s; "
+                                "start / end where f leaves / reaches the hold level")]
     for s in skipped:
         rows.append(("Skipped", s))
     return pd.DataFrame(rows, columns=["Item", "Value"])
@@ -799,6 +1018,7 @@ def flags_sheet(results: list[dict]) -> pd.DataFrame:
 HEADER_FILL = "9BD7F0"                       # header colour of the report tables
 OVERVIEW_HEAD = ["From freq.", "To freq.", "Delta freq.", "From power", "To power", "Delta power"]
 RESULTS_HEAD = ["From freq.", "To freq.", "P-Calculated", "P-Simulated", "Error", "Ti", "Ts"]
+RAMP_RESULTS_HEAD = ["From freq.", "To freq.", "P-Calculated", "P-Simulated", "Error", "Ti"]
 INSENS_HEAD = ["From freq.", "To freq.", "f - fn", "Test", "P full droop", "P-Simulated",
                "dP vs P0", "% of full droop", "Result"]
 
@@ -871,7 +1091,9 @@ def overview_cells(res: dict, cfg: dict = CONFIG, ramp: bool = False) -> list[li
 
 
 def results_cells(res: dict) -> list[list]:
-    """DNV 25-1670 Tables 4-3 / 4-6 / 4-9 as (value, number format) cells."""
+    """DNV 25-1670 Tables 4-3 / 4-6 / 4-9 (steps) or 4-4 / 4-7 / 4-10 (ramps,
+    no Ts column) as (value, number format) cells."""
+    ramp = res.get("variant") == "Ramp"
     rows = []
     for s in res["steps"]:
         fd = max(_dec(s["f_from"]), _dec(s["f_to"]))
@@ -881,9 +1103,10 @@ def results_cells(res: dict) -> list[list]:
                 return ("-", None)
             return ("not settled", None) if x is None else (_rh(x, 1), '0.0" s"')
         err = ("-", None) if s["error_pct"] is None else (_rh(s["error_pct"], 3), '0.000" %"')
-        rows.append([(s["f_from"], _num(fd) + '" Hz"'), (s["f_to"], _num(fd) + '" Hz"'),
-                     (_rh(s["P_calc"], 2), '0.00" MW"'), (_rh(s["P_sim"], 2), '0.00" MW"'),
-                     err, tt(s["Ti_s"]), tt(s["Ts_s"])])
+        row = [(s["f_from"], _num(fd) + '" Hz"'), (s["f_to"], _num(fd) + '" Hz"'),
+               (_rh(s["P_calc"], 2), '0.00" MW"'), (_rh(s["P_sim"], 2), '0.00" MW"'),
+               err, tt(s["Ti_s"])]
+        rows.append(row if ramp else row + [tt(s["Ts_s"])])
     return rows
 
 
@@ -957,8 +1180,6 @@ def write_excel(results: list[dict], path: str, manifest: dict, skipped: list[st
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
     others = others or []
-    ramps = {MODES.get(str(e.get("type", "")).upper()) for e in manifest.get("cases", [])
-             if e.get("variant") == "Ramp" or "ramp" in str(e.get("name", "")).lower()}
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
@@ -967,25 +1188,31 @@ def write_excel(results: list[dict], path: str, manifest: dict, skipped: list[st
                   SUMMARY_COLS, {"Case": 16, "Mode": 10, "Result": 10, "Thresholds": 18,
                                  "Droop": 18, "Error": 18, "Ti": 22, "Ts": 26,
                                  "Oscillation": 13, "Insensitivity": 16, "Flags": 60})
-    for r in sorted(results, key=lambda x: (MODE_ORDER + ("FSM-INS",)).index(x["mode"])):
-        m = r["mode"]
+    by_mode: dict = {}
+    for r in results:
+        by_mode.setdefault(r["mode"], {})[r.get("variant", "Step")] = r
+    for m in sorted(by_mode, key=lambda x: (MODE_ORDER + ("FSM-INS",)).index(x)):
+        st, rp = by_mode[m].get("Step"), by_mode[m].get("Ramp")
         if m == "FSM-INS":
             ws = wb.create_sheet("FSM insensitivity")
             _write_table(ws, 1, "FSM insensitivity at the POC (controller insensitivity, "
-                         "FSM deadband 0 mHz)", INSENS_HEAD, insens_cells(r))
+                         "FSM deadband 0 mHz)", INSENS_HEAD, insens_cells(st))
             widths = [12, 12, 10, 30, 13, 13, 13, 15, 9]
         else:
             ws = wb.create_sheet(m)
-            body = [("section", "Simulation of frequency steps")] + overview_cells(r, cfg)
-            if m in ramps:
-                body += [("section", "Simulation of frequency ramps")] + overview_cells(r, cfg, ramp=True)
+            body = []
+            if st:
+                body += [("section", "Simulation of frequency steps")] + overview_cells(st, cfg)
+            if rp:
+                body += [("section", "Simulation of frequency ramps")] + overview_cells(rp, cfg, ramp=True)
             nxt = _write_table(ws, 1, f"List of frequency steps for {m} simulation",
                                OVERVIEW_HEAD, body)
-            nxt = _write_table(ws, nxt, f"{m} simulation results at the POC (frequency steps)",
-                               RESULTS_HEAD, results_cells(r))
-            if m in ramps:
-                ws.cell(nxt, 1, "Ramp results: not evaluated yet (ramp list above assumed "
-                                "equal to the step list).")
+            if st:
+                nxt = _write_table(ws, nxt, f"{m} simulation results at the POC (frequency steps)",
+                                   RESULTS_HEAD, results_cells(st))
+            if rp:
+                nxt = _write_table(ws, nxt, f"{m} simulation results at the POC (frequency ramps)",
+                                   RAMP_RESULTS_HEAD, results_cells(rp))
             widths = [12, 12, 14, 24, 13, 16, 12]
         for c, w in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(c)].width = w
@@ -1008,12 +1235,10 @@ def plot_case(res: dict, path: str, out_dir: str, cfg: dict = CONFIG) -> None:
     cd = load_case(path, res["name"], res["mode"], cfg)
     os.makedirs(out_dir, exist_ok=True)
     tag = res["name"].replace(" ", "_")
-    # staircase of P-calculated
-    tc, pc = [cd.t[0]], [res["P0"]]
-    for s in res["steps"]:
-        tc += [s["t_event_s"], s["t_event_s"]]
-        pc += [s["P_calc_from"], s["P_calc"]]
-    tc.append(cd.t[-1]); pc.append(res["steps"][-1]["P_calc"])
+    # P-calculated along the simulated frequency (staircase for steps, ramps for ramps)
+    tc = cd.t
+    pc = np.array([p_expected(x, res["mode"], res["P0"], cfg)[0] for x in cd.f])
+    ramp = res.get("variant") == "Ramp"
     fig, ax = plt.subplots(figsize=(11, 4.5))
     ax.plot(cd.t, cd.P, label="P simulated (POC)")
     ax.plot(tc, pc, "--", label="P calculated")
@@ -1027,6 +1252,22 @@ def plot_case(res: dict, path: str, out_dir: str, cfg: dict = CONFIG) -> None:
         if s["threshold_step"]:
             continue
         te = s["t_e_sample_s"]
+        if ramp:
+            t1 = s["t_ramp_end_s"] + max(10.0, (s["Ts_s"] or 0.0) + 5.0)
+            m = window(cd.t, te - 5.0, min(t1, s["t_next_s"]))
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.plot(cd.t[m] - te, cd.P[m], label="P simulated")
+            ax.plot(cd.t[m] - te, pc[m] - s["P_calc_from"] + s["P_before"], "--", color="k",
+                    lw=0.8, label="P calculated (from P before)")
+            ax.axvline(s["t_ramp_end_s"] - te, ls=":", color="grey", label="ramp end")
+            ti = "-" if s["Ti_s"] is None else f"{s['Ti_s']:.1f} s"
+            ax.set_xlabel("time after ramp start [s]"); ax.set_ylabel("P [MW]")
+            ax.grid(True, alpha=0.3); ax.legend()
+            ax.set_title(f"{res['name']}: {s['f_from']:g} -> {s['f_to']:g} Hz, Ti (lag) {ti}")
+            fig.tight_layout()
+            fig.savefig(os.path.join(out_dir, f"{tag}_ramp{s['event']}.png"), dpi=150)
+            plt.close(fig)
+            continue
         m = window(cd.t, te - 1.0, te + 10.0)
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.plot(cd.t[m] - te, cd.P[m], label="P simulated")
@@ -1117,7 +1358,7 @@ def load_manifest(folder: str) -> dict | None:
 
 def run(folder: str, out: str | None = None, plots: bool = False,
         cfg: dict = CONFIG) -> int:
-    """Evaluate every Step case in the manifest of `folder`, write `out`. Returns 0 / 1."""
+    """Evaluate every Step and Ramp case in the manifest of `folder`, write `out`. Returns 0 / 1."""
     manifest = load_manifest(folder)
     if manifest is None:
         _warn(f"No export_manifest.json or case .json files in {folder} "
@@ -1133,17 +1374,14 @@ def run(folder: str, out: str | None = None, plots: bool = False,
 
     for entry in manifest.get("cases", []):
         name = entry.get("name", "?")
-        if entry.get("variant") == "Ramp" or "ramp" in name.lower():
-            other(name, entry, "not evaluated", "ramp evaluation not implemented yet")
-            _say(f"{name}: skipped (ramp evaluation not implemented yet)")
-            continue
         if entry.get("export_status") != "ok":
             other(name, entry, "no results", f"export status '{entry.get('export_status')}'")
             _warn(f"{name}: skipped (export status '{entry.get('export_status')}')")
             continue
         path = os.path.join(folder, entry.get("csv_file") or name.replace(" ", "_") + ".csv")
         try:
-            res = evaluate_case(path, entry, manifest, cfg)
+            res = (evaluate_ramp_case(path, entry, cfg) if is_ramp(entry)
+                   else evaluate_case(path, entry, manifest, cfg))
         except Exception as exc:                 # one case never stops the others
             other(name, entry, "error", f"ERROR {exc}")
             _warn(f"ERROR {name}: {exc}")
