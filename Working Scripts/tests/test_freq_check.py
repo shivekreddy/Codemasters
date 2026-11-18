@@ -475,3 +475,16 @@ def test_run_writes_ramp_tables(tmp_path):
     ws = wb["Summary"]
     res = {ws.cell(r, 1).value: ws.cell(r, 3).value for r in range(5, ws.max_row + 1)}
     assert res == {"LFSMO Step": "PASS", "LFSMO Ramp": "PASS"}
+
+
+def test_droop_tolerance_5pct_of_p_calculated(tmp_path):
+    """Droop: dP-sim within dP-expected +/- 5 % of P-calculated. An 8 % larger
+    step (effective droop 4.63 %) passes; three times the step fails."""
+    ev = [(0, 50.0), (30, 50.1), (60, 50.0)]
+    res = eval_synth(tmp_path, ev, "FSM", "FSM", response=lambda k, dp: dp * 1.08)
+    s = res["steps"][0]
+    assert s["eff_droop_pct"] == pytest.approx(5.0 / 1.08, rel=1e-3)
+    assert s["droop_ok"] and fq.case_summary(res)["Droop"][1] is False
+    res = eval_synth(tmp_path, ev, "FSM", "FSM", response=lambda k, dp: dp * 3.0)
+    assert not res["steps"][0]["droop_ok"]
+    assert fq.case_summary(res)["Droop"][1] is True

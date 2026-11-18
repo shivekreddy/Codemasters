@@ -96,7 +96,7 @@ CONFIG: dict = {
     "settle_window_s": 2.0,          # P-simulated settled check before the next event
     "settle_frac": 0.005,            # max-min below 0.5 % of Pref
     "threshold_resp_frac": 0.005,    # threshold step: |dP| below 0.5 % of Pref
-    "droop_tol_rel": 0.05,           # effective droop within 5 % +/- 5 % (assumption)
+    "droop_dp_tol_frac": 0.05,       # droop: |dP-sim - dP-expected| <= 5 % of P-calculated
     "osc_window_s": 1.0,
     "osc_abs_tol_MW": 0.02,          # noise floor for "peak-to-peak grows"
     # pre-event checks (NBNL operating point, project values)
@@ -504,6 +504,13 @@ def evaluate_step(cd: CaseData, k: int, t_ev: float, t_next: float | None,
     else:
         pref = step_pref(f_from, f_to, mode, P0, cfg)
         r["Pref_MW"] = pref
+        r["dP_dev_MW"] = dps - dpe
+        r["dP_dev_limit_MW"] = cfg["droop_dp_tol_frac"] * abs(pc_to)
+        r["droop_ok"] = abs(dps - dpe) <= r["dP_dev_limit_MW"]
+        if not r["droop_ok"]:
+            flags.append(f"droop: dP-sim {dps:+.3f} MW vs dP-expected {dpe:+.3f} MW, "
+                         f"deviation beyond {r['dP_dev_limit_MW']:.3f} MW "
+                         f"({cfg['droop_dp_tol_frac'] * 100:g} % of P-calculated)")
         if pref is not None and dps != 0:
             r["eff_droop_pct"] = -((f_to - f_from) / cfg["fn_Hz"]) / (dps / pref) * 100.0
         else:
@@ -728,6 +735,13 @@ def evaluate_ramp(cd: CaseData, k: int, rp: dict, i_next: int, P0: float,
     else:
         pref = step_pref(f_from, f_to, mode, P0, cfg)
         r["Pref_MW"] = pref
+        r["dP_dev_MW"] = dps - dpe
+        r["dP_dev_limit_MW"] = cfg["droop_dp_tol_frac"] * abs(pc_to)
+        r["droop_ok"] = abs(dps - dpe) <= r["dP_dev_limit_MW"]
+        if not r["droop_ok"]:
+            flags.append(f"droop: dP-sim {dps:+.3f} MW vs dP-expected {dpe:+.3f} MW, "
+                         f"deviation beyond {r['dP_dev_limit_MW']:.3f} MW "
+                         f"({cfg['droop_dp_tol_frac'] * 100:g} % of P-calculated)")
         if pref is not None and dps != 0:
             r["eff_droop_pct"] = -((f_to - f_from) / cfg["fn_Hz"]) / (dps / pref) * 100.0
         # expected P along the ramp, anchored at the simulated P before it
@@ -877,12 +891,16 @@ def case_summary(res: dict, cfg: dict = CONFIG) -> dict:
             row["Thresholds"] = ("pass" if not bad else
                                  "FAIL: response at " + ", ".join(f"{s['f_to']:g} Hz" for s in bad),
                                  bool(bad))
+        # NBNL droop response: per step dP-sim within dP-expected +/- 5 % of
+        # P-calculated (same basis as the error criterion); the effective
+        # droop range is shown for information
         d = [s["eff_droop_pct"] for s in resp if s["eff_droop_pct"] is not None]
-        lo = cfg["droop"] * 100 * (1 - cfg["droop_tol_rel"])
-        hi = cfg["droop"] * 100 * (1 + cfg["droop_tol_rel"])
-        if d:
-            ok = lo <= min(d) and max(d) <= hi
-            row["Droop"] = (f"{'pass' if ok else 'FAIL'} ({min(d):.2f}-{max(d):.2f} %)", not ok)
+        chk = [s for s in resp if "droop_ok" in s]
+        if chk:
+            ok = all(s["droop_ok"] for s in chk)
+            rng = f", eff. {min(d):.2f}-{max(d):.2f} %" if d else ""
+            row["Droop"] = (f"{'pass' if ok else 'FAIL'} (dP within "
+                            f"{cfg['droop_dp_tol_frac'] * 100:g} %{rng})", not ok)
         else:
             row["Droop"] = ("-", False)
         e = _max([abs(s["error_pct"]) for s in steps if s["error_pct"] is not None])
