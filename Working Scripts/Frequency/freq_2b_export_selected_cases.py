@@ -26,6 +26,7 @@
 # Scripts (one folder up).
 # ==============================================================================
 
+import inspect
 import os
 import sys
 
@@ -67,6 +68,10 @@ def main():
     selected = [name for name, on in CASES.items() if on]
     if not selected:
         app.PrintError("No case switched on: set at least one case to 1.")
+        return
+    if "write_manifest" not in inspect.signature(gcc.export_raw_results).parameters:
+        app.PrintError(f"{gcc.__file__} is older than this script: copy the "
+                       "gcc_common.py from the same version next to it.")
         return
     cfg = gcc.load_yaml(gcc.resolve_config_path(__file__))
     out = OUTPUT_DIR or os.path.join(gcc.results_root(cfg), "Freq Selected Cases")
