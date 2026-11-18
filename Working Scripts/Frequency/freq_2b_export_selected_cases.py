@@ -8,7 +8,9 @@
 # Output:  <OUTPUT_DIR>\<FREQ run folder>\
 #            FSM_Step.csv   + FSM_Step.json     (one pair per case)
 #            ...
-#            export_manifest.json
+#
+# No export_manifest.json is written, so all files of this folder can be
+# pasted into a Freq Raw Data run folder without clashing with its manifest.
 #
 # Each <case>.json holds that case's event times and setpoints. To combine
 # models, copy each case's .csv AND .json into the run folder that freq_4
@@ -71,12 +73,13 @@ def main():
     with gcc.pf_session(app):
         try:
             gcc.export_raw_results(app, "FREQ", __file__, run_tag=RUN_FOLDER,
-                                   case_names=selected, output_dir=out)
+                                   case_names=selected, output_dir=out,
+                                   write_manifest=False)
         except Exception as exc:
             app.PrintError(f"Frequency selected-cases export aborted: {exc}")
             raise
-    app.PrintPlain("\n  Copy each case's .csv AND .json into the Freq Raw Data run "
-                   "folder, then run freq_4.")
+    app.PrintPlain("\n  Copy all files of this folder (.csv AND .json) into the "
+                   "Freq Raw Data run folder, then run freq_4.")
 
 
 main()

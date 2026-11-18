@@ -880,7 +880,7 @@ def _write_case_json(export_dir, csv_name, entry, run_folder):
 
 
 def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
-                       case_names=None, output_dir=None):
+                       case_names=None, output_dir=None, write_manifest=True):
     """
     Export one frequency run to <paths.root>\\Freq Raw Data\\<run folder>\\:
     one CSV per study case (named after the case) + export_manifest.json.
@@ -894,6 +894,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
     output_dir None -> <paths.root>\\Freq Raw Data; else this folder. The run
                folder name is added below it. An existing export_manifest.json
                there is kept: the exported cases are added or replaced.
+    write_manifest False -> no export_manifest.json, only the CSV and .json
+               per case (freq_2b: the folder's files can be pasted into a
+               Freq Raw Data run folder without replacing its manifest).
 
     run_tag None -> paths.freq_run from the project config, else the latest
     FREQ_* run folder in Study Cases. Works without results: cases without
@@ -1034,7 +1037,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
         "cases":          entries,
     }
     manifest_path = os.path.join(export_dir, "export_manifest.json")
-    if output_dir and os.path.isfile(manifest_path):       # add to an earlier export
+    if not write_manifest:
+        manifest_path = None
+    elif output_dir and os.path.isfile(manifest_path):       # add to an earlier export
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 old = json.load(f).get("cases", [])
@@ -1043,8 +1048,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
                                  + entries)
         except Exception as exc:
             app.PrintWarn(f"Earlier export_manifest.json not read ({exc}); replaced.")
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, default=str)
+    if manifest_path:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, default=str)
 
     app.PrintPlain("")
     app.PrintPlain("=" * 68)
@@ -1054,7 +1060,7 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
     app.PrintPlain(f"  Cases    : {len(cases)} exported, {n_data} with results, "
                    f"{n_zero} as zeros (no results)")
     app.PrintPlain(f"  Folder   : {export_dir}")
-    app.PrintPlain(f"  Manifest : {manifest_path}")
+    app.PrintPlain(f"  Manifest : {manifest_path or 'none (one .json per case)'}")
     app.PrintPlain("=" * 68)
     return export_dir
 
