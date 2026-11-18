@@ -1072,15 +1072,54 @@ _say = print
 _warn = print
 
 
+def load_manifest(folder: str) -> dict | None:
+    """
+    export_manifest.json of the folder, with the per-case <case>.json files
+    (written next to each CSV by the exports) added or taking priority, so
+    cases copied in from another run or model are evaluated too.
+    None if the folder has neither.
+    """
+    mpath = os.path.join(folder, "export_manifest.json")
+    manifest = None
+    if os.path.isfile(mpath):
+        with open(mpath, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    cases = {e.get("name"): e for e in (manifest or {}).get("cases", [])}
+    copied = []
+    for fn in sorted(os.listdir(folder)):
+        if not fn.lower().endswith(".json") or fn == "export_manifest.json":
+            continue
+        try:
+            with open(os.path.join(folder, fn), "r", encoding="utf-8") as f:
+                entry = json.load(f)
+        except Exception as exc:
+            _warn(f"{fn}: not read ({exc})")
+            continue
+        if not isinstance(entry, dict) or "name" not in entry or "csv_file" not in entry:
+            continue
+        if not os.path.isfile(os.path.join(folder, entry["csv_file"])):
+            _warn(f"{fn}: its CSV '{entry['csv_file']}' is not in the folder (skipped)")
+            continue
+        cases[entry["name"]] = entry
+        if manifest is None or entry.get("run_folder") not in (None, manifest.get("run_tag")):
+            copied.append(f"{entry['name']} ({entry.get('run_folder', '?')})")
+    if manifest is None and not cases:
+        return None
+    manifest = dict(manifest or {"run_tag": os.path.basename(os.path.normpath(folder))})
+    manifest["cases"] = sorted(cases.values(), key=lambda e: str(e.get("name")))
+    if copied:
+        _say("Cases from other run folders: " + ", ".join(copied))
+    return manifest
+
+
 def run(folder: str, out: str | None = None, plots: bool = False,
         cfg: dict = CONFIG) -> int:
     """Evaluate every Step case in the manifest of `folder`, write `out`. Returns 0 / 1."""
-    mpath = os.path.join(folder, "export_manifest.json")
-    if not os.path.isfile(mpath):
-        _warn(f"No export_manifest.json in {folder} (run freq_2_export_raw_data.py first).")
+    manifest = load_manifest(folder)
+    if manifest is None:
+        _warn(f"No export_manifest.json or case .json files in {folder} "
+              "(run freq_2_export_raw_data.py first).")
         return 1
-    with open(mpath, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
     out = out or os.path.join(folder, "freq_results.xlsx")
     results, skipped, others = [], [], []
 

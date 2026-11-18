@@ -870,11 +870,30 @@ def resolve_config_path(script_file, config_file=None):
     return os.path.join(folders[0], CONFIG_NAMES[-1])
 
 
-def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
+def _write_case_json(export_dir, csv_name, entry, run_folder):
+    """<case>.json next to the case's CSV: its manifest entry + where it came from."""
+    data = dict(entry, run_folder=run_folder,
+                exported=datetime.now().isoformat(timespec="seconds"))
+    with open(os.path.join(export_dir, csv_name[:-4] + ".json"), "w",
+              encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=str)
+
+
+def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
+                       case_names=None, output_dir=None):
     """
     Export one frequency run to <paths.root>\\Freq Raw Data\\<run folder>\\:
     one CSV per study case (named after the case) + export_manifest.json.
+    Next to each CSV a <case>.json with that case's manifest entry, so a case
+    can be copied into another run folder with its event times and setpoints
+    (freq_4 reads these and they take priority over export_manifest.json).
     (FRT raw data: frt_3_export_raw_data.py, one folder per case.)
+
+    case_names None -> every case; else only these study case names
+               (case-insensitive, e.g. "FSM Step").
+    output_dir None -> <paths.root>\\Freq Raw Data; else this folder. The run
+               folder name is added below it. An existing export_manifest.json
+               there is kept: the exported cases are added or replaced.
 
     run_tag None -> paths.freq_run from the project config, else the latest
     FREQ_* run folder in Study Cases. Works without results: cases without
@@ -933,7 +952,11 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
             + f" Run the {study} simulation script first."
         )
     app.PrintPlain(f"\nRun folder: '{sc_folder.loc_name}'")
-    export_dir = results_dir(cfg, "freq_raw", sc_folder.loc_name)
+    if output_dir:
+        export_dir = os.path.join(output_dir, sc_folder.loc_name)
+        os.makedirs(export_dir, exist_ok=True)
+    else:
+        export_dir = results_dir(cfg, "freq_raw", sc_folder.loc_name)
     app.PrintPlain(f"Export to : {export_dir}")
 
     # --- Case metadata from the run manifest, if the simulation wrote one ----
@@ -955,6 +978,14 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
     cases = sorted(sc_folder.GetContents("*.IntCase"), key=lambda c: c.loc_name)
     if not cases:
         raise RuntimeError(f"Run folder '{sc_folder.loc_name}' has no study cases.")
+    if case_names is not None:
+        wanted = {str(n).strip().lower() for n in case_names}
+        missing_cases = sorted(wanted - {c.loc_name.lower() for c in cases})
+        cases = [c for c in cases if c.loc_name.lower() in wanted]
+        for n in missing_cases:
+            app.PrintWarn(f"  No study case '{n}' in '{sc_folder.loc_name}' (skipped)")
+        if not cases:
+            raise RuntimeError("None of the selected cases is in the run folder.")
     app.PrintPlain(f"Cases     : {len(cases)}\n")
 
     entries, n_data, n_zero = [], 0, 0
@@ -972,6 +1003,7 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
             entry["export_status"] = "no_result_data"
             n_zero += 1
             app.PrintWarn(f"  [{name}] -> {fname}  NO RESULTS, written as zeros")
+            _write_case_json(export_dir, fname, entry, sc_folder.loc_name)
             entries.append(entry)
             continue
 
@@ -980,6 +1012,7 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
         if entry.get("t_stop") is not None:
             entry["complete"] = last_t >= float(entry["t_stop"]) - tolerance
         n_data += 1
+        _write_case_json(export_dir, fname, entry, sc_folder.loc_name)
         app.PrintPlain(f"  [{name}] -> {fname}  ({n_rows} rows, "
                        f"t_end={last_t:.3f}s"
                        + (f", {len(missing)} column(s) zero" if missing else "")
@@ -1001,6 +1034,15 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None):
         "cases":          entries,
     }
     manifest_path = os.path.join(export_dir, "export_manifest.json")
+    if output_dir and os.path.isfile(manifest_path):       # add to an earlier export
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                old = json.load(f).get("cases", [])
+            names = {e["name"] for e in entries}
+            manifest["cases"] = ([e for e in old if e.get("name") not in names]
+                                 + entries)
+        except Exception as exc:
+            app.PrintWarn(f"Earlier export_manifest.json not read ({exc}); replaced.")
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, default=str)
 

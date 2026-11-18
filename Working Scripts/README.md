@@ -31,6 +31,7 @@ Working Scripts\
     Frequency\
         freq_1_create_and_run_cases.py     create the frequency study cases, optionally run them
         freq_2_export_raw_data.py          export the results to CSV
+        freq_2b_export_selected_cases.py   export selected cases (cases run in another model)
         freq_3_export_plots.py             export the PowerFactory plot pages as PNG
         freq_4_compliance_check.py         evaluate compliance, write the Excel workbook
     tests\                                 pytest tests (no PowerFactory needed)
@@ -108,7 +109,8 @@ Everything is written under `root` (folders are created when missing):
     FRT Selected Cases\<FRT run>\<case>\...   (default of frt_3b; any folder set in the script)
     PowerFactory Plots\FRT\<FRT run>\<case>\POC.png, ...  frt_4
     FRT Results\<FRT run>\frt_results.xlsx (+ plots\)      frt_5
-    Freq Raw Data\<FREQ run>\LFSMO_Step.csv, ...  + export_manifest.json            freq_2
+    Freq Raw Data\<FREQ run>\LFSMO_Step.csv + LFSMO_Step.json, ...  + export_manifest.json   freq_2
+    Freq Selected Cases\<FREQ run>\FSM_Step.csv + FSM_Step.json, ...                     freq_2b
     PowerFactory Plots\Frequency\<FREQ run>\<case> - Plot 1 - Main Results.png, ...  freq_3
     Freq Results\<FREQ run>\freq_results.xlsx (+ plots\)   freq_4
 ```
@@ -154,7 +156,8 @@ Every export and check uses the **latest** run by that timestamp unless
 | Step | Script | Does | Settings in the script |
 |---|---|---|---|
 | 1 | `freq_1_create_and_run_cases.py` | Builds the frequency cases from the grid code (`LFSMO`, `LFSMU`, `FSM`: Step and Ramp; `FSMINS`: Step) in a new `FREQ_<timestamp>` folder: base case copy, POC fed by the frequency voltage source, P = `freq_p_factor` x Pmax, Q = 0, frequency step events (`EvtParam` on F0Hz), plot pages, stop time. Runs them if `setup_only: false`. Writes the run manifest. | `FREQ_Y_RANGE` |
-| 2 | `freq_2_export_raw_data.py` | One CSV per case plus `export_manifest.json` (with step times and psetp from the run manifest). Cases without results are written as zeros and marked. | none |
+| 2 | `freq_2_export_raw_data.py` | One CSV per case plus `export_manifest.json` (with step times and psetp from the run manifest), and a `<case>.json` next to each CSV with that case's entry. Cases without results are written as zeros and marked. | none |
+| 2b | `freq_2b_export_selected_cases.py` | Optional, for cases run in another model. Same files as step 2, only for the cases switched on (`"FSM Step": 1`, ...), into `OUTPUT_DIR` (default `<root>\Freq Selected Cases`). Copy each case's `.csv` and `.json` into the `Freq Raw Data\<run>` folder that step 4 checks: step 4 reads the `.json` files, and they take priority over that folder's `export_manifest.json`. Exporting again into the same folder adds or replaces cases. | `CASES`, `OUTPUT_DIR`, `RUN_FOLDER` |
 | 3 | `freq_3_export_plots.py` | PNG of Plot 1 to 3 of every case. | `FORMAT` |
 | 4 | `freq_4_compliance_check.py` | Evaluates every Step case and writes `freq_results.xlsx`. | `PF_PLOTS` |
 

@@ -317,6 +317,28 @@ def test_run_without_manifest(tmp_path):
     assert fq.run(str(tmp_path)) == 1
 
 
+def test_run_with_case_copied_from_other_model(tmp_path):
+    """A case pasted in as <case>.csv + <case>.json (freq_2b) is evaluated
+    with its own entry, which also overrides the folder manifest's entry."""
+    d = str(tmp_path)
+    t, f, p = synth(LFSMO_EV, "LFSM-O")
+    good = write_case(d, "LFSMO Step", "LFSMO", LFSMO_EV, t, f, p)
+    # folder manifest (model A) has a broken LFSMO entry and no LFSMU case
+    manifest(d, [dict(good, export_status="no_result_data")])
+    with open(os.path.join(d, "LFSMO_Step.json"), "w") as fh:
+        json.dump(dict(good, run_folder="FREQ_model_B"), fh)
+    # a .json whose CSV was not copied is skipped
+    with open(os.path.join(d, "LFSMU_Step.json"), "w") as fh:
+        json.dump(dict(good, name="LFSMU Step", csv_file="LFSMU_Step.csv"), fh)
+    m = fq.load_manifest(d)
+    assert [c["name"] for c in m["cases"]] == ["LFSMO Step"]
+    assert m["cases"][0]["export_status"] == "ok"
+    out = os.path.join(d, "freq_results.xlsx")
+    assert fq.run(d, out) == 0
+    os.remove(os.path.join(d, "export_manifest.json"))      # .json files alone
+    assert fq.run(d, out) == 0
+
+
 # ==============================================================================
 # Acceptance: samples LFSMO_Step.csv, LFSMU_Step.csv (PROVISIONAL Ti / Ts)
 # ==============================================================================
