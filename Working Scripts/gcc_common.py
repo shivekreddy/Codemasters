@@ -944,9 +944,9 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
                Freq Raw Data run folder without replacing its manifest).
 
     run_tag None -> paths.freq_run from the project config, else the latest
-    FREQ_* run folder in Study Cases. Works without results: cases without
-    data are exported as zeros and marked 'no_result_data' in the manifest
-    (the evaluation reports them).
+    FREQ_* run folder in Study Cases. Cases without results in this model
+    are not exported (no CSV / .json; listed as 'no_result_data' in the
+    manifest); an existing export with results for such a case is kept.
     """
     if study != "FREQ":
         raise ValueError("export_raw_results exports frequency runs only; "
@@ -1059,18 +1059,25 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
                            f"{fname} (from '{kept.get('run_folder', '?')}')")
             entries.append(kept)
             continue
+        if last_t is None:
+            # No results: no files, so the folder only holds simulated cases
+            # (freq_4 checks the CSV files it finds). A zero file left by an
+            # earlier export is removed.
+            os.remove(tmp_path)
+            for old in (csv_path, csv_path[:-4] + ".json"):
+                if os.path.isfile(old):
+                    os.remove(old)
+            entry["csv_file"]      = None
+            entry["export_status"] = "no_result_data"
+            n_zero += 1
+            app.PrintWarn(f"  [{name}] NO RESULTS in this model: not exported")
+            entries.append(entry)
+            continue
         os.replace(tmp_path, csv_path)
 
         entry["csv_file"]        = fname
         entry["n_rows"]          = n_rows
         entry["missing_columns"] = missing
-        if last_t is None:
-            entry["export_status"] = "no_result_data"
-            n_zero += 1
-            app.PrintWarn(f"  [{name}] -> {fname}  NO RESULTS, written as zeros")
-            _write_case_json(export_dir, fname, entry, sc_folder.loc_name)
-            entries.append(entry)
-            continue
 
         entry["export_status"] = "ok"
         entry["t_end_s"]       = round(last_t, 6)
@@ -1119,8 +1126,8 @@ def export_raw_results(app, study, script_file, run_tag=None, config_file=None,
     app.PrintPlain(f"  {study} RAW DATA EXPORT SUMMARY")
     app.PrintPlain("=" * 68)
     app.PrintPlain(f"  Run      : {sc_folder.loc_name}")
-    app.PrintPlain(f"  Cases    : {len(cases)} exported, {n_data} with results, "
-                   f"{n_zero} as zeros (no results)")
+    app.PrintPlain(f"  Cases    : {n_data} exported, {n_zero} without results "
+                   f"(not exported)")
     app.PrintPlain(f"  Folder   : {export_dir}")
     app.PrintPlain(f"  Manifest : {manifest_path or 'none (one .json per case)'}")
     app.PrintPlain("=" * 68)

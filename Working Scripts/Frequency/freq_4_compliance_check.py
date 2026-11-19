@@ -7,10 +7,13 @@ Requirements: NBNL PGMCV 2.0 §4.2.1 (LFSM-O), §4.2.2 (LFSM-U), §4.2.3 (FSM);
 Netcode elektriciteit Art. 3.13 sub 4, Art. 3.24 sub 2 and 3. Method as DNV
 report 25-1670 Rev. 2, Tables 4-2 to 4-11 (accepted by TenneT).
 
-Input: one run folder in "Freq Raw Data", written by freq_2_export_raw_data.py:
-    LFSMO_Step.csv, LFSMU_Step.csv, FSM_Step.csv, FSMINS_Step.csv, ...
-    export_manifest.json   (event times, psetp, missing_columns)
-Step event times come from the manifest; they are not detected in the data.
+Input: one run folder in "Freq Raw Data". The cases checked are the CSV files
+in it, whatever model they came from (freq_2 in one model, freq_2b in another):
+    LFSMO_Step.csv (+ LFSMO_Step.json), LFSMU_Ramp.csv, FSM_Step.csv, ...
+    export_manifest.json   (optional)
+Case details (step event times, psetp) come from the case's .json, else from
+export_manifest.json; without either the step events are detected in the POC
+frequency and the P0 cross-check is skipped (both flagged).
 Ramp cases: the ramps are detected in the POC frequency (the ramp profile
 comes from the external .txt file, not from the manifest); Ti is the response
 lag over the middle of each ramp (Tables 4-4, 4-7, 4-10).
@@ -117,6 +120,11 @@ CONFIG: dict = {
     "insens_present_frac": 0.50,     # "present": >= 50 % of the droop value, right sign
     # ramp cases (DNV 25-1670 Rev. 2 Tables 4-4, 4-7, 4-10): ramps detected in
     # the POC frequency; Ti = response lag over the middle 50 % of the ramp
+    # step detection when a CSV comes without step events (.json / manifest)
+    "step_detect_Hz": 0.005,         # jump between two samples
+    "step_cluster_s": 0.5,           # jumps this close are one step
+    "step_settle_s": 0.5,            # level measured from this long after the jump
+    "step_level_window_s": 2.0,      # ... over this window
     "ramp_grid_s": 0.05,             # resampling step for the ramp detection
     "ramp_detect_frac": 0.5,         # |df/dt| > 50 % of the nominal rate = ramp
     "ramp_min_s": 1.0,               # ... for at least this long
@@ -580,7 +588,12 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
         flags.append(f"run incomplete: ends at {entry.get('t_end_s')} s, "
                      f"t_stop {entry.get('t_stop')} s")
 
-    ev = manifest_events(entry)
+    if entry.get("step_events"):
+        ev = manifest_events(entry)
+    else:
+        ev = detect_steps(cd.t, cd.f, cfg)
+        flags.append("step events detected in the POC frequency (no step events in "
+                     "the case .json / export_manifest.json)")
     f_level, events = ev[0][1], []
     for j, (t_ev, f_ev) in enumerate(ev):
         if j == 0 or t_ev <= cd.t[0] + 1e-9 or abs(f_ev - f_level) < 1e-9:
@@ -591,7 +604,7 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
         events.append((t_ev, f_level, f_ev))
         f_level = f_ev
     if not events:
-        raise ValueError("no frequency change in the manifest step_events.")
+        raise ValueError("no frequency step found (step events / POC frequency).")
 
     i_first = index_at_time(cd.t, events[0][0])
     psetp = entry.get("psetp")
@@ -608,6 +621,57 @@ def evaluate_case(path: str, entry: dict, manifest: dict, cfg: dict = CONFIG) ->
     if mode == "FSM-INS":
         res["insens"] = evaluate_insensitivity(steps, P0, cfg)
     return res
+
+
+def csv_has_results(path: str) -> bool:
+    """False for an export of a case without results (header plus one row of
+    zeros, written by earlier exports) or an empty file."""
+    try:
+        df = pd.read_csv(path, nrows=3)
+    except Exception:
+        return False
+    if len(df) == 0:
+        return False
+    return not (len(df) == 1 and (pd.to_numeric(df.iloc[0], errors="coerce").fillna(0) == 0).all())
+
+
+def snap_level(f: float, cfg: dict = CONFIG) -> float:
+    """A detected hold level: onto the 0.1 Hz grid when within f_level_tol_Hz
+    of it (the POC frequency settles e.g. at 50.999 Hz for 51.0 Hz), else to
+    1 mHz (insensitivity levels such as 50.012 Hz)."""
+    g = round(f, 1)
+    return g if abs(f - g) <= cfg["f_level_tol_Hz"] else round(f, 3)
+
+
+def detect_steps(t: np.ndarray, f: np.ndarray, cfg: dict = CONFIG) -> list[tuple[float, float]]:
+    """
+    Step events from the POC frequency, for a CSV without step events in its
+    .json / the manifest: a jump of more than step_detect_Hz between two
+    samples; jumps within step_cluster_s count as one step. Event time = the
+    last sample before the jump; new level = median frequency over
+    step_level_window_s after the cluster (1 mHz), steps that end at the old
+    level (spikes) are dropped. Returns [(t, f), ...] incl. the initial level.
+    """
+    d = np.abs(np.diff(f))
+    idx = np.nonzero(d > cfg["step_detect_Hz"])[0]
+    level = snap_level(float(np.median(f[t <= t[0] + 1.0])), cfg)
+    events = [(float(t[0]), level)]
+    k = 0
+    while k < idx.size:
+        a = b = idx[k]
+        while k + 1 < idx.size and t[idx[k + 1]] - t[b] <= cfg["step_cluster_s"]:
+            k += 1
+            b = idx[k]
+        k += 1
+        t1 = t[b + 1] + cfg["step_settle_s"]
+        m = window(t, t1, t1 + cfg["step_level_window_s"])
+        if not m.any():
+            m = np.zeros_like(t, dtype=bool); m[-1] = True
+        new = snap_level(float(np.median(f[m])), cfg)
+        if abs(new - level) >= cfg["step_detect_Hz"]:
+            events.append((float(t[a]), new))
+            level = new
+    return events
 
 
 # ------------------------------------------------------------------------------
@@ -644,11 +708,13 @@ def detect_ramps(t: np.ndarray, f: np.ndarray, cfg: dict = CONFIG) -> list[dict]
         hi = runs[k + 1][0] if k + 1 < len(runs) else len(tg) - 1
         pre = fg[max(lo, a - int(2.0 / dt)):max(a - h, lo + 1)]
         post = fg[min(b + h, hi - 1):min(hi, b + int(2.0 / dt)) + 1]
-        f_from = round(float(np.median(pre if pre.size else fg[a:a + 1])), 3)
-        f_to = round(float(np.median(post if post.size else fg[b:b + 1])), 3)
+        f_from = snap_level(float(np.median(pre if pre.size else fg[a:a + 1])), cfg)
+        f_to = snap_level(float(np.median(post if post.size else fg[b:b + 1])), cfg)
         t_mid = 0.5 * (tg[a] + tg[b])
-        before = np.nonzero((t <= t_mid) & (np.abs(f - f_from) <= tol))[0]
-        after = np.nonzero((t >= t_mid) & (np.abs(f - f_to) <= tol))[0]
+        lv_from = float(np.median(pre)) if pre.size else f_from    # measured levels
+        lv_to = float(np.median(post)) if post.size else f_to
+        before = np.nonzero((t <= t_mid) & (np.abs(f - lv_from) <= tol))[0]
+        after = np.nonzero((t >= t_mid) & (np.abs(f - lv_to) <= tol))[0]
         if before.size == 0 or after.size == 0:
             continue
         i_s, i_t = int(before[-1]), int(after[0])
@@ -1334,53 +1400,73 @@ _say = print
 _warn = print
 
 
-def load_manifest(folder: str) -> dict | None:
+def collect_cases(folder: str) -> dict | None:
     """
-    export_manifest.json of the folder, with the per-case <case>.json files
-    (written next to each CSV by the exports) added or taking priority, so
-    cases copied in from another run or model are evaluated too.
-    None if the folder has neither.
+    The cases to check are the CSV files in `folder` (whatever model they
+    came from): "LFSMO_Ramp.csv" is case "LFSMO Ramp" (type LFSMO, variant
+    Ramp). Details per case (step events, psetp, t_stop) come from its
+    <case>.json if present, else from export_manifest.json, else none:
+    step events are then detected in the POC frequency and the P0
+    cross-check is skipped (both flagged). Manifest entries without a CSV
+    are ignored. Returns {"run_tag", "exported", "cases"}, None if the
+    folder has no CSV file.
     """
+    manifest = {}
     mpath = os.path.join(folder, "export_manifest.json")
-    manifest = None
     if os.path.isfile(mpath):
-        with open(mpath, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-    cases = {e.get("name"): e for e in (manifest or {}).get("cases", [])}
-    copied = []
-    for fn in sorted(os.listdir(folder)):
-        if not fn.lower().endswith(".json") or fn == "export_manifest.json":
-            continue
         try:
-            with open(os.path.join(folder, fn), "r", encoding="utf-8") as f:
-                entry = json.load(f)
+            with open(mpath, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
         except Exception as exc:
-            _warn(f"{fn}: not read ({exc})")
-            continue
-        if not isinstance(entry, dict) or "name" not in entry or "csv_file" not in entry:
-            continue
-        if not os.path.isfile(os.path.join(folder, entry["csv_file"])):
-            _warn(f"{fn}: its CSV '{entry['csv_file']}' is not in the folder (skipped)")
-            continue
-        cases[entry["name"]] = entry
-        if manifest is None or entry.get("run_folder") not in (None, manifest.get("run_tag")):
-            copied.append(f"{entry['name']} ({entry.get('run_folder', '?')})")
-    if manifest is None and not cases:
+            _warn(f"export_manifest.json not read ({exc}); case .json files only")
+    by_csv = {}
+    for e in manifest.get("cases", []):
+        fn = e.get("csv_file") or str(e.get("name", "")).replace(" ", "_") + ".csv"
+        by_csv[fn.lower()] = e
+    csvs = sorted(fn for fn in os.listdir(folder) if fn.lower().endswith(".csv"))
+    if not csvs:
         return None
-    manifest = dict(manifest or {"run_tag": os.path.basename(os.path.normpath(folder))})
-    manifest["cases"] = sorted(cases.values(), key=lambda e: str(e.get("name")))
-    if copied:
-        _say("Cases from other run folders: " + ", ".join(copied))
-    return manifest
+    cases, other_runs = [], []
+    for fn in csvs:
+        stem = fn[:-4]
+        entry, src = None, "none"
+        jpath = os.path.join(folder, stem + ".json")
+        if os.path.isfile(jpath):
+            try:
+                with open(jpath, "r", encoding="utf-8") as f:
+                    entry, src = json.load(f), stem + ".json"
+            except Exception as exc:
+                _warn(f"{stem}.json not read ({exc})")
+        if not isinstance(entry, dict):
+            entry, src = by_csv.get(fn.lower()), "export_manifest.json"
+        entry = dict(entry or {})
+        if not entry:
+            src = "none"
+        entry["name"] = entry.get("name") or stem.replace("_", " ")
+        entry["csv_file"] = fn
+        entry["meta_file"] = src
+        parts = entry["name"].split()
+        entry.setdefault("type", parts[0].upper() if parts else "")
+        if "variant" not in entry and len(parts) > 1 and parts[-1] in ("Ramp", "Step"):
+            entry["variant"] = parts[-1]
+        if entry.get("run_folder") and entry["run_folder"] != manifest.get("run_tag"):
+            other_runs.append(f"{entry['name']} ({entry['run_folder']})")
+        cases.append(entry)
+    if other_runs:
+        _say("Cases from other run folders: " + ", ".join(other_runs))
+    return {"run_tag": manifest.get("run_tag") or os.path.basename(os.path.normpath(folder)),
+            "exported": manifest.get("exported"), "cases": cases}
+
+
+load_manifest = collect_cases          # name used by earlier versions / tests
 
 
 def run(folder: str, out: str | None = None, plots: bool = False,
         cfg: dict = CONFIG) -> int:
-    """Evaluate every Step and Ramp case in the manifest of `folder`, write `out`. Returns 0 / 1."""
-    manifest = load_manifest(folder)
+    """Evaluate every Step and Ramp case CSV in `folder`, write `out`. Returns 0 / 1."""
+    manifest = collect_cases(folder)
     if manifest is None:
-        _warn(f"No export_manifest.json or case .json files in {folder} "
-              "(run freq_2_export_raw_data.py first).")
+        _warn(f"No case CSV files in {folder} (run freq_2_export_raw_data.py first).")
         return 1
     out = out or os.path.join(folder, "freq_results.xlsx")
     results, skipped, others = [], [], []
@@ -1392,11 +1478,11 @@ def run(folder: str, out: str | None = None, plots: bool = False,
 
     for entry in manifest.get("cases", []):
         name = entry.get("name", "?")
-        if entry.get("export_status") != "ok":
-            other(name, entry, "no results", f"export status '{entry.get('export_status')}'")
-            _warn(f"{name}: skipped (export status '{entry.get('export_status')}')")
+        path = os.path.join(folder, entry["csv_file"])
+        if not csv_has_results(path):
+            other(name, entry, "no results", "CSV holds no simulation data (case not simulated)")
+            _warn(f"{name}: skipped (no simulation data in {entry['csv_file']})")
             continue
-        path = os.path.join(folder, entry.get("csv_file") or name.replace(" ", "_") + ".csv")
         try:
             res = (evaluate_ramp_case(path, entry, cfg) if is_ramp(entry)
                    else evaluate_case(path, entry, manifest, cfg))

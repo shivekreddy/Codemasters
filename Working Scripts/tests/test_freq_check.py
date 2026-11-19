@@ -277,32 +277,34 @@ def test_run_missing_columns_and_ramp(tmp_path):
     good = write_case(d, "LFSMO Step", "LFSMO", LFSMO_EV, t, f, p)
     bad = write_case(d, "LFSMU Step", "LFSMU", [(0, 50.0), (30, 49.8)], t, f, p,
                      extra={"missing_columns": ["POC Frequency [Hz]"]})
+    # manifest entry without a CSV: not a case to check
     ramp = {"name": "LFSMO Ramp", "type": "LFSMO", "variant": "Ramp",
             "export_status": "ok", "csv_file": "LFSMO_Ramp.csv"}
-    nores = dict(good, name="FSM Step", type="FSM", export_status="no_result_data")
-    manifest(d, [good, bad, ramp, nores])
+    # zero file of a case without results (earlier exports wrote these)
+    pd.DataFrame({"time_s": [0.0], "POC Frequency [Hz]": [0]}).to_csv(
+        os.path.join(d, "FSM_Step.csv"), index=False)
+    manifest(d, [good, bad, ramp])
     out = os.path.join(d, "freq_results.xlsx")
     assert fq.run(d, out) == 0
     x = pd.read_excel(out, sheet_name=None)
     assert list(x)[0] == "Summary"
     assert {"info", "LFSM-O", "raw", "flags"} <= set(x)
     skipped = " ".join(map(str, x["info"]["Value"]))
-    assert "missing columns" in skipped and "LFSMO_Ramp.csv" in skipped   # ramp CSV absent
-    assert "no_result_data" in skipped
+    assert "missing columns" in skipped and "no simulation data" in skipped
+    assert "LFSMO Ramp" not in skipped
     # Summary: every manifest case listed, failed / error cells red
     import openpyxl
     ws = openpyxl.load_workbook(out)["Summary"]
     cols = [c.value for c in ws[4]]
     res_col = cols.index("Result") + 1
     rows = {ws.cell(r, 1).value: ws.cell(r, res_col) for r in range(5, ws.max_row + 1)}
-    assert set(rows) == {"LFSMO Step", "LFSMU Step", "LFSMO Ramp", "FSM Step"}
+    assert set(rows) == {"LFSMO Step", "LFSMU Step", "FSM Step"}
     assert rows["LFSMO Step"].value == "PASS"
     assert rows["LFSMU Step"].value == "ERROR"
     assert rows["FSM Step"].value == "NO RESULTS"
-    assert rows["LFSMO Ramp"].value == "ERROR"
     red = lambda c: c.fill.fgColor.rgb.endswith(fq.FAIL_FILL)
     assert red(rows["LFSMU Step"]) and red(rows["FSM Step"])
-    assert not red(rows["LFSMO Step"]) and red(rows["LFSMO Ramp"])
+    assert not red(rows["LFSMO Step"])
 
 
 def test_summary_marks_failed_criterion_red(tmp_path):
@@ -330,9 +332,10 @@ def test_run_with_case_copied_from_other_model(tmp_path):
     # a .json whose CSV was not copied is skipped
     with open(os.path.join(d, "LFSMU_Step.json"), "w") as fh:
         json.dump(dict(good, name="LFSMU Step", csv_file="LFSMU_Step.csv"), fh)
-    m = fq.load_manifest(d)
+    m = fq.collect_cases(d)
     assert [c["name"] for c in m["cases"]] == ["LFSMO Step"]
     assert m["cases"][0]["export_status"] == "ok"
+    assert m["cases"][0]["meta_file"] == "LFSMO_Step.json"
     out = os.path.join(d, "freq_results.xlsx")
     assert fq.run(d, out) == 0
     os.remove(os.path.join(d, "export_manifest.json"))      # .json files alone
@@ -488,3 +491,46 @@ def test_droop_tolerance_5pct_of_p_calculated(tmp_path):
     res = eval_synth(tmp_path, ev, "FSM", "FSM", response=lambda k, dp: dp * 3.0)
     assert not res["steps"][0]["droop_ok"]
     assert fq.case_summary(res)["Droop"][1] is True
+
+
+def test_csv_only_steps_detected(tmp_path):
+    """A CSV with no .json and no manifest is still checked: case name and
+    type from the file name, step events detected in the frequency; the
+    results equal those with the manifest events."""
+    d = str(tmp_path)
+    t, f, p = synth(LFSMO_EV, "LFSM-O")
+    e = write_case(d, "LFSMO Step", "LFSMO", LFSMO_EV, t, f, p)
+    ref = fq.evaluate_case(os.path.join(d, e["csv_file"]), e, {})
+    m = fq.collect_cases(d)
+    entry = m["cases"][0]
+    assert entry["name"] == "LFSMO Step" and entry["type"] == "LFSMO"
+    assert entry["meta_file"] == "none"
+    assert fq.detect_steps(t, f) == [(float(t[0]), 50.0)] + [
+        (float(te), fe) for te, fe in LFSMO_EV[1:]]
+    res = fq.evaluate_case(os.path.join(d, e["csv_file"]), entry, m)
+    for a, b in zip(ref["steps"], res["steps"]):
+        assert (a["f_from"], a["f_to"]) == (b["f_from"], b["f_to"])
+        assert a["P_sim"] == pytest.approx(b["P_sim"])
+        assert a["Ti_s"] == pytest.approx(b["Ti_s"]) if a["Ti_s"] else b["Ti_s"] is None
+    assert any("detected in the POC frequency" in x for x in res["flags"])
+    assert fq.run(d, os.path.join(d, "out.xlsx")) == 0
+
+
+def test_two_models_pasted_together(tmp_path):
+    """Model A's CSV + .json and model B's CSV + .json in one folder, model
+    A's manifest listing a no-result entry for B's case: both are checked."""
+    d = str(tmp_path)
+    t, f, p = synth(LFSMO_EV, "LFSM-O")
+    a = write_case(d, "LFSMO Step", "LFSMO", LFSMO_EV, t, f, p)
+    manifest(d, [a, {"name": "LFSMO Ramp", "type": "LFSMO", "variant": "Ramp",
+                     "csv_file": None, "export_status": "no_result_data"}])
+    tr, fr, pr = synth_ramp([50.0, 50.2, 50.5], "LFSM-O")
+    b = ramp_entry(d, "LFSMO Ramp", "LFSMO", tr, fr, pr)
+    with open(os.path.join(d, "LFSMO_Ramp.json"), "w") as fh:
+        json.dump(dict(b, run_folder="FREQ_model_B"), fh)
+    out = os.path.join(d, "out.xlsx")
+    assert fq.run(d, out) == 0
+    import openpyxl
+    ws = openpyxl.load_workbook(out)["Summary"]
+    res = {ws.cell(r, 1).value: ws.cell(r, 3).value for r in range(5, ws.max_row + 1)}
+    assert res == {"LFSMO Step": "PASS", "LFSMO Ramp": "PASS"}

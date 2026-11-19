@@ -8,8 +8,10 @@
 # paths.root is set in the project config next to this script. Nothing to
 # set in this script.
 #
-# Cases without results are still exported, as zeros, so the script always
-# runs. Point a ComPython object at this script and run it from PowerFactory.
+# Cases without results in this model are not exported (listed in the output
+# window); results already in the folder for such a case (pasted in from
+# another model with freq_2b) are kept. Point a ComPython object at this
+# script and run it from PowerFactory.
 # ==============================================================================
 
 import sys
